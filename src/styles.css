@@ -1,0 +1,177 @@
+@import "tailwindcss";
+@import "@fontsource/outfit/latin-400.css";
+@import "@fontsource/outfit/latin-500.css";
+@import "@fontsource/outfit/latin-600.css";
+@import "@fontsource/outfit/latin-700.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
+
+@theme {
+  --color-bg: #0e0d0b;
+  --color-surface: #17150f;
+  --color-surface-2: #221f18;
+  --color-fg: #f4efe6;
+  --color-muted: #a39888;
+  --color-accent: #e4a04a;
+  --color-accent-ink: #1a1208;
+  --color-go: #8fbf9f;
+  --color-if: #e7c27a;
+  --color-loop: #9db7d4;
+  --color-danger: #e07a6a;
+  --color-danger-soft: #3a2420;
+  --color-border: #342f26;
+  --color-grid: #2a261e;
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --radius-card: 1rem;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html {
+    color-scheme: dark;
+    background: var(--color-bg);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    text-rendering: optimizeLegibility;
+  }
+}
+
+.script-text {
+  font-family: var(--font-mono);
+  font-size: 1.0625rem;
+  font-weight: 400;
+  line-height: 1.65;
+  letter-spacing: 0;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  tab-size: 2;
+}
+
+.editor-stack {
+  --gutter: 2.75rem;
+  --pad-x: 0.75rem;
+  --pad-y: 0.85rem;
+  position: relative;
+  min-height: 18rem;
+  padding: var(--pad-y) 0;
+  background: var(--color-surface);
+}
+
+.editor-lines {
+  pointer-events: none;
+  user-select: none;
+}
+
+.editor-row {
+  display: flex;
+  align-items: flex-start;
+  min-height: 1.65em;
+  padding-right: var(--pad-x);
+}
+
+.editor-row.is-bad {
+  background: color-mix(in oklab, var(--color-danger) 24%, transparent);
+  box-shadow: inset 3px 0 0 var(--color-danger);
+}
+
+.editor-gutter {
+  width: var(--gutter);
+  flex: none;
+  padding-right: 0.65rem;
+  color: var(--color-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.editor-code {
+  flex: 1;
+  min-width: 0;
+  min-height: 1.65em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.editor-input {
+  position: absolute;
+  inset: var(--pad-y) var(--pad-x) var(--pad-y) var(--gutter);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--color-accent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.editor-input::selection {
+  background: color-mix(in oklab, var(--color-accent) 42%, transparent);
+  color: transparent;
+}
+
+.tok-screen { color: var(--color-accent); font-weight: 600; }
+.tok-go { color: var(--color-go); font-weight: 600; }
+.tok-if { color: var(--color-if); font-weight: 600; }
+.tok-loop { color: var(--color-loop); font-weight: 600; }
+.tok-until,
+.tok-then { color: var(--color-loop); font-weight: 500; }
+.tok-name { color: var(--color-fg); }
+.tok-cond,
+.tok-plain { color: var(--color-muted); }
+
+.map-canvas {
+  background-color: var(--color-bg);
+  background-image: radial-gradient(var(--color-grid) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.mermaid-host {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.mermaid-host svg {
+  height: auto;
+  max-width: 100%;
+}
+
+.tap {
+  touch-action: manipulation;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tap {
+    transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease;
+  }
+
+  .tap:active {
+    transform: scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tap {
+    transition: none;
+  }
+}

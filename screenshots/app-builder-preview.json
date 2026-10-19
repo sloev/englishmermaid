@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Plainpath",
+      "hasCanvas": false,
+      "bodyTextLen": 1143,
+      "bodyTextHash": "37a7a424281bffc0633eec0c393da04f2672b63e6fcf9fc2d440ac8afecd9b78",
+      "bodyTextPrefix": "Plainpath Map a website in plain English. Spaces and new lines o",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Plainpath",
+      "hasCanvas": false,
+      "bodyTextLen": 1025,
+      "bodyTextHash": "6c5f50e92a3bde7b56fafb64cb288ad9236be3f3eac5cc4e47a36e749f6ba6b0",
+      "bodyTextPrefix": "Plainpath Map a website in plain English. Spaces and new lines o",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}
