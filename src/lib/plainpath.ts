@@ -34,6 +34,8 @@ type Stmt =
   | { t: "each"; item: string; tail?: Tail }
   | { t: "on"; event: string; tail?: Tail }
   | { t: "button"; label: string; tail?: Tail }
+  | { t: "choose"; prompt: string }
+  | { t: "option"; label: string; text: string; tail?: Tail }
   | { t: "step"; title: string }
   | { t: "text"; text: string; heading: boolean }
   | { t: "go"; to: string }
@@ -59,6 +61,8 @@ export type Node =
   | { kind: "show"; name: string; line: number; children: Node[] }
   | { kind: "text"; text: string; heading: boolean; line: number }
   | { kind: "button"; label: string; line: number; children: Node[] }
+  | { kind: "choose"; prompt: string; line: number; children: Node[] }
+  | { kind: "option"; label: string; text: string; line: number; children: Node[] }
   | { kind: "each"; item: string; line: number; children: Node[] }
   | { kind: "on"; event: string; line: number; children: Node[] }
   | { kind: "if"; line: number; branches: Branch[] }
@@ -98,9 +102,11 @@ Component: Blend Card
   Show Name, + Button
 
 Popup: Coffee Type
-  Headline: Datakaffe or almindelig kaffe?
-  Button Datakaffe goes to Datakaffe Roasting
-  Button Almindelig kaffe goes to Regular Roasting
+  Headline: Which kind of roast?
+  Choose roast flow:
+    Datakaffe: weigh and analyse the beans first, goes to Datakaffe Roasting
+    Almindelig kaffe: the classic roast, goes to Regular Roasting
+  Button Cancel goes to Library
 
 Screen: Datakaffe Roasting
   Step: Measure 200 g of beans X into the analysis bowl
@@ -177,7 +183,18 @@ export const BLANK = `Screen: Home
   `;
 
 export type SnippetId =
-  "screen" | "popup" | "show" | "text" | "button" | "each" | "if" | "else" | "on" | "step" | "go";
+  | "screen"
+  | "popup"
+  | "show"
+  | "text"
+  | "button"
+  | "choose"
+  | "each"
+  | "if"
+  | "else"
+  | "on"
+  | "step"
+  | "go";
 
 export const SNIPPETS: Record<
   SnippetId,
@@ -188,6 +205,7 @@ export const SNIPPETS: Record<
   show: { text: "Show ", cursor: 5, label: "Show", hint: "a part", kind: "show" },
   text: { text: "Text: ", cursor: 6, label: "Text:", hint: "words", kind: "text" },
   button: { text: "Button  goes to ", cursor: 7, label: "Button", hint: "", kind: "button" },
+  choose: { text: "Choose :", cursor: 7, label: "Choose", hint: "a select", kind: "button" },
   each: { text: "For each  show ", cursor: 9, label: "For each", hint: "a list", kind: "each" },
   if: { text: "If ", cursor: 3, label: "If", hint: "a choice", kind: "if" },
   else: { text: "Else", cursor: 4, label: "Else", hint: "", kind: "if" },
@@ -272,7 +290,9 @@ function withTail(body: string, start: number, allowShow = true): Split {
   return { head: unquote(body.slice(start)), segs: [[body.slice(start), "cond"]] };
 }
 
-export function classifyLine(raw: string): Line {
+// Indent, the text after any indent or list bullet, and a Line builder that
+// keeps that prefix as the first token.
+function lineParts(raw: string) {
   const lead = raw.match(/^[ \t]*/)![0];
   const indent = lead.replace(/\t/g, "  ").length;
   let body = raw.slice(lead.length);
@@ -287,6 +307,36 @@ export function classifyLine(raw: string): Line {
       .filter(([text]) => text)
       .map(([text, kind]) => ({ text, kind })),
   });
+  return { indent, body, make };
+}
+
+const asLabel = (segs: Seg[]): Seg[] =>
+  segs.map(([text, kind]): Seg => [text, kind === "cond" ? "button" : kind]);
+
+/**
+ * A line indented under `Choose …`: `Label: description [goes to X]`, or just
+ * `Label [goes to X]`. Read in context by the parser, so any words can be an option.
+ */
+export function classifyOption(raw: string): Line {
+  const { body, make } = lineParts(raw);
+  if (!body.trim()) return make({ t: "blank" }, [[body, "plain"]]);
+  if (/^(?:note:|\/\/)/i.test(body)) return make({ t: "note" }, [[body, "note"]]);
+  const colon = body.indexOf(":");
+  if (colon > 0) {
+    const label = unquote(body.slice(0, colon));
+    const { head, tail, segs, error } = withTail(body, colon + 1, false);
+    return make(
+      { t: "option", label, text: head, tail },
+      [[body.slice(0, colon), "button"], [":", "plain"], ...segs],
+      label ? error : "Name the option before the colon",
+    );
+  }
+  const { head, tail, segs, error } = withTail(body, 0, false);
+  return make({ t: "option", label: head, text: "", tail }, asLabel(segs), error);
+}
+
+export function classifyLine(raw: string): Line {
+  const { body, make } = lineParts(raw);
   const word = (re: RegExp) => body.match(re)?.[0];
   const keyed = (kind: TokenKind, m: string, rest: TokenKind = "name"): Seg[] => [
     [m, kind],
@@ -339,11 +389,16 @@ export function classifyLine(raw: string): Line {
     );
   }
 
+  if ((m = word(/^(?:choose|select|pick)(?=[\s:]|$)/i))) {
+    const prompt = unquote(body.slice(m.length).replace(/:\s*$/, ""));
+    return make({ t: "choose", prompt }, keyed("button", m));
+  }
+
   if ((m = word(/^(?:button|link)\b\s*:?/i))) {
     const { head, tail, segs, error } = withTail(body, m.length, false);
     return make(
       { t: "button", label: head, tail },
-      [[m, "button"], ...segs.map(([text, kind]): Seg => [text, kind === "cond" ? "name" : kind])],
+      [[m, "button"], ...asLabel(segs)],
       head ? error : "Say what the button says, like 'Button Buy goes to Cart'",
     );
   }
@@ -456,7 +511,7 @@ export function classifyLine(raw: string): Line {
 
 // ------------------------------------------------------------ tree level
 
-type Frame = { indent: number; children: Node[] };
+type Frame = { indent: number; children: Node[]; choose?: boolean };
 
 function tailNodes(tail: Tail | undefined, line: number): Node[] {
   if (!tail) return [];
@@ -485,15 +540,22 @@ function stepTarget(to: string, current: number | null, total: number): number |
 }
 
 export function parse(source: string): Journey {
-  const lines = source.split(/\r\n|\n|\r/).map(classifyLine);
+  const raw = source.split(/\r\n|\n|\r/);
+  const lines = raw.map(classifyLine);
   const blocks: Block[] = [];
   const issues: Issue[] = [];
   let title: string | null = null;
   let block: Block | null = null;
   let stack: Frame[] = [];
 
-  lines.forEach((line, index) => {
+  lines.forEach((first, index) => {
     const number = index + 1;
+    let line = first;
+    if (block && line.stmt.t !== "blank" && line.stmt.t !== "note") {
+      while (stack.length > 1 && stack[stack.length - 1].indent >= line.indent) stack.pop();
+      // Lines indented under a Choose are its options, whatever words they start with.
+      if (stack[stack.length - 1].choose) line = lines[index] = classifyOption(raw[index]);
+    }
     const fail = (message: string) => {
       line.error = message;
       issues.push({ line: number, message });
@@ -551,6 +613,20 @@ export function parse(source: string): Journey {
           children: [],
           number: 0,
           total: 0,
+        });
+      case "choose": {
+        const node: Node = { kind: "choose", prompt: stmt.prompt, line: number, children: [] };
+        siblings.push(node);
+        stack.push({ indent: line.indent, children: node.children, choose: true });
+        return;
+      }
+      case "option":
+        return add({
+          kind: "option",
+          label: stmt.label,
+          text: stmt.text,
+          line: number,
+          children: tailNodes(stmt.tail, number),
         });
       case "button":
         return add({
@@ -634,6 +710,12 @@ export function parse(source: string): Journey {
             blocks.push({ name: node.to, kind: "ghost", line: node.line, children: [], steps: [] });
           }
         }
+        if (node.kind === "choose" && !node.children.length) {
+          issues.push({
+            line: node.line,
+            message: "Add the options on the lines below, indented, like 'Datakaffe: weigh first'",
+          });
+        }
         visit(childrenOf(node), node.kind === "step" ? node.number : current);
       });
     visit(owner.children, null);
@@ -713,6 +795,7 @@ const CLASS_DEFS = [
   "classDef text fill:transparent,stroke:transparent,color:#d9d0c2,font-style:italic",
   "classDef headline fill:transparent,stroke:transparent,color:#f4efe6,font-weight:bold,font-size:18px",
   "classDef button fill:#16292a,stroke:#7fc4c9,color:#f4efe6,stroke-width:1.5px",
+  "classDef option fill:#1c1a15,stroke:#7fc4c9,color:#f4efe6",
   "classDef step fill:#17211c,stroke:#8fbf9f,color:#f4efe6,stroke-width:1.5px",
   "classDef cond fill:#2a2415,stroke:#e7c27a,color:#f4efe6",
   "classDef on fill:#26192a,stroke:#d99bc4,color:#f4efe6",
@@ -838,6 +921,10 @@ function flowMermaid(journey: Journey): string {
         walk(owner, fromId, node.children, [...labels, node.event], COLORS.on);
       } else if (node.kind === "button") {
         walk(owner, fromId, node.children, [...labels, `tap ${node.label}`], COLORS.button);
+      } else if (node.kind === "option") {
+        walk(owner, fromId, node.children, [...labels, `choose ${node.label}`], COLORS.button);
+      } else if (node.kind === "choose") {
+        walk(owner, fromId, node.children, labels, color);
       } else if (node.kind === "step") {
         walk(owner, stepIds.get(node)!, node.children, [], COLORS.go);
       } else if (node.kind === "show") {
@@ -950,6 +1037,23 @@ function storyMermaid(journey: Journey): string {
           depth,
         );
         ids.push(id);
+      } else if (node.kind === "choose") {
+        const id = w.id("q");
+        group(
+          owner,
+          id,
+          node.prompt ? `Choose ${node.prompt}` : "Choose one",
+          node.children,
+          depth,
+        );
+        w.line(`style ${id} fill:#132021,stroke:${COLORS.button}`, depth);
+        ids.push(id);
+      } else if (node.kind === "option") {
+        const id = w.id("r");
+        const text = node.text ? `<br>${mermaidLabel(node.text)}` : "";
+        w.node(id, `["${mermaidLabel(`○ ${node.label}`)}${text}"]`, "option", depth);
+        ids.push(id);
+        interaction(owner, id, node.children, COLORS.button, depth);
       } else if (node.kind === "button") {
         const id = w.id("u");
         w.node(id, `(${q(node.label)})`, "button", depth);

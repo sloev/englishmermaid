@@ -251,3 +251,43 @@ test("long labels wrap instead of being cut", () => {
   assert.match(mermaid, /title: Measure 200 g .* analyser\n/, "the diagram title is not wrapped");
   assert.ok(!mermaid.includes("…"));
 });
+
+test("choose: options are read in context, with optional descriptions and actions", () => {
+  const src = `Screen: Start
+  Choose roast flow:
+    Dataoriented: this and that
+    Normal: that and this, goes to Classic
+    Screen: not a header here, just an option
+    Show me later
+      Go to Later
+  Text: after the select
+`;
+  const journey = parse(src);
+  assert.deepEqual(journey.issues, []);
+  const [start] = journey.blocks;
+  const choose = start.children[0] as Extract<Node, { kind: "choose" }>;
+  assert.equal(choose.prompt, "roast flow");
+  assert.deepEqual(
+    choose.children.map(
+      (o) => o.kind === "option" && [o.label, o.text, o.children.map((c) => c.kind)],
+    ),
+    [
+      ["Dataoriented", "this and that", []],
+      ["Normal", "that and this", ["go"]],
+      ["Screen", "not a header here, just an option", []],
+      ["Show me later", "", ["go"]],
+    ],
+  );
+  assert.equal(start.children[1].kind, "text", "dedenting ends the options");
+  assert.deepEqual(
+    journey.blocks.map((b) => b.name),
+    ["Start", "Classic", "Later"],
+  );
+  assert.equal(journey.lines[2].tokens.find((t) => t.kind === "button")?.text, "Dataoriented");
+  assert.match(toMermaid(journey, "flow"), /-->\|"choose Normal"\|/);
+  assert.match(toMermaid(journey, "story"), /"○ Dataoriented<br>this and that"/);
+});
+
+test("choose needs options", () => {
+  assert.match(parse("Screen: A\n  Choose flavour\n").issues[0].message, /options/);
+});

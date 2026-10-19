@@ -631,9 +631,9 @@ function onEditorKey(
     const indent = line.match(/^[ \t]*/)![0];
     // One level deeper after a line that opens a block, unless it already ends in an action.
     const opens =
-      /^\s*(\w+(?:-up)?:|show\b|for each\b|if\b|else\b|otherwise\b|on\b|when\b|after\b|once\b|step\b|button\b)/i.test(
+      /^\s*(?:(?:screen|page|view|component|modal|popup|pop-up|dialog|sheet):|show\b|for each\b|if\b|else\b|otherwise\b|on\b|when\b|after\b|once\b|step\b|button\b|choose\b|select\b|pick\b)/i.test(
         line,
-      ) && !/^\s*(title|text|headline|heading|label|message|note):/i.test(line);
+      );
     const inline = /\s(go(es)?\s+to|opens?|show)\s+\S/i.test(line.replace(/^\s*show\s/i, " "));
     insert = `\n${indent}${opens && !inline ? "  " : ""}`;
   } else if (event.key === "Tab" && !event.shiftKey && start === end) {
@@ -708,6 +708,10 @@ const HELP: { code: string; text: string }[] = [
   },
   { code: "Text: Free shipping|Headline: Pick a blend", text: "Words on the screen." },
   { code: "Button Datakaffe goes to Roasting", text: "A button and where it leads." },
+  {
+    code: "Choose roast flow:",
+    text: "A select. Put one option per line below it: 'Datakaffe: weigh first, goes to Roasting'. The description and the 'goes to' are optional.",
+  },
   {
     code: "For each blend in my library show Blend Card",
     text: "A list. Or put the Show lines indented below.",
