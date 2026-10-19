@@ -58,3 +58,11 @@ export async function renderMermaid(code: string): Promise<string> {
     document.getElementById(id)?.remove();
   }
 }
+
+/** Same diagram with SVG text labels instead of HTML ones, so it can be saved or rasterised. */
+export function plainLabels(code: string): string {
+  const config = "config:\n  htmlLabels: false\n  flowchart:\n    htmlLabels: false";
+  return code.startsWith("---\n")
+    ? `---\n${config}\n${code.slice(4)}`
+    : `---\n${config}\n---\n${code}`;
+}

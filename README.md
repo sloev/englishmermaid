@@ -3,6 +3,13 @@
 Describe screens, layout and interactions in plain English and get a live
 [Mermaid](https://mermaid.js.org) diagram behind your text.
 
+**App:** https://sloev.github.io/englishmermaid/. It installs as an app and works
+offline. Save and open `.plainpath` files, export SVG, PNG or Mermaid, or copy a
+share link.
+
+**AI agents:** see [`public/agents.md`](public/agents.md) (served at
+`/agents.md`). In short, link people to `…/englishmermaid/#text=<url-encoded script>`.
+
 ```
 Title: Shop
 Screen: Products
@@ -43,5 +50,5 @@ double-click to fit).
 npm install
 npm run dev     # http://localhost:8080
 npm test        # parser tests
-npm run build   # static site in dist/ with relative paths, host anywhere
+npm run build   # static PWA in docs/ (served by GitHub Pages)
 ```

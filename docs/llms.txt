@@ -1,0 +1,5 @@
+# Plainpath
+
+> Describe screens, layout and interactions in plain English and get a live Mermaid diagram. Runs fully in the browser.
+
+- [Guide for AI agents](https://sloev.github.io/englishmermaid/agents.md): syntax, examples, and how to link a person to a rendered diagram with `#text=<url-encoded script>`.

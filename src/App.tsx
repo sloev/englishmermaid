@@ -2,8 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   BookOpen,
-  Check,
+  Bot,
   Copy,
+  Download,
+  FileDown,
+  FolderOpen,
+  Image,
+  Link,
+  MonitorDown,
+  Save,
   LayoutTemplate,
   Maximize,
   Minus,
@@ -25,7 +32,19 @@ import {
   type SnippetId,
   type ViewKind,
 } from "./lib/plainpath";
-import { renderMermaid } from "./lib/mermaid";
+import { plainLabels, renderMermaid } from "./lib/mermaid";
+import {
+  download,
+  EXTENSION,
+  fileName,
+  onLaunchFile,
+  openText,
+  readShareHash,
+  saveText,
+  shareUrl,
+  svgToPng,
+  type FileHandle,
+} from "./lib/files";
 import { usePanZoom } from "./lib/use-pan-zoom";
 
 const STORAGE_KEY = "plainpath-script";
@@ -54,7 +73,10 @@ export function App() {
   );
   const [svg, setSvg] = useState("");
   const [mapNote, setMapNote] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [file, setFile] = useState<{ handle: FileHandle; saved: string } | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [install, setInstall] = useState<{ prompt(): Promise<void> } | null>(null);
   const [undoSource, setUndoSource] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(true);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -71,6 +93,36 @@ export function App() {
   const ghostCount = journey.blocks.filter((block) => block.kind === "ghost").length;
 
   useEffect(() => store(STORAGE_KEY, source), [source]);
+
+  // Share links (#text= / #s=) and files opened from the OS replace the script.
+  useEffect(() => {
+    const fromHash = () =>
+      readShareHash(location.hash).then(({ text, view }) => {
+        if (view === "flow" || view === "story") setViewKind(view);
+        if (text == null) return;
+        setSource((current) => {
+          if (current !== text) setUndoSource(current);
+          return text;
+        });
+        setFile(null);
+        history.replaceState(null, "", location.pathname + location.search);
+      });
+    fromHash();
+    window.addEventListener("hashchange", fromHash);
+    onLaunchFile((text, handle) => {
+      setSource(text);
+      setFile({ handle, saved: text });
+    });
+    const onInstall = (event: Event) => {
+      event.preventDefault();
+      setInstall(event as unknown as { prompt(): Promise<void> });
+    };
+    window.addEventListener("beforeinstallprompt", onInstall);
+    return () => {
+      window.removeEventListener("hashchange", fromHash);
+      window.removeEventListener("beforeinstallprompt", onInstall);
+    };
+  }, []);
   useEffect(() => store(VIEW_KEY, viewKind), [viewKind]);
 
   useEffect(() => {
@@ -113,17 +165,26 @@ export function App() {
   // Cmd/Ctrl+E toggles from anywhere; Escape leaves the editor.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "e") {
+      const mod = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+      if (mod && key === "e") {
         event.preventDefault();
         setEditorOpen((open) => !open);
+      } else if (mod && key === "s") {
+        event.preventDefault();
+        actions.current.save(event.shiftKey);
+      } else if (mod && key === "o") {
+        event.preventDefault();
+        actions.current.open();
       } else if (event.key === "Escape" && editorOpen) {
         if (helpOpen) setHelpOpen(false);
+        else if (menuOpen) setMenuOpen(false);
         else setEditorOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editorOpen, helpOpen]);
+  }, [editorOpen, helpOpen, menuOpen]);
 
   useEffect(() => {
     if (editorOpen) areaRef.current?.focus({ preventScroll: true });
@@ -160,12 +221,53 @@ export function App() {
     area.setSelectionRange(start, start + (parts[line - 1]?.length ?? 0));
   }
 
-  async function onCopy() {
-    if (!mermaid) return;
-    await navigator.clipboard.writeText(mermaid).catch(() => undefined);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+  function flash(message: string) {
+    setToast(message);
+    window.setTimeout(() => setToast((current) => (current === message ? null : current)), 2200);
   }
+
+  async function run(task: () => Promise<unknown>) {
+    try {
+      await task();
+    } catch {
+      flash("That did not work in this browser");
+    }
+  }
+
+  const base = fileName(journey.title);
+
+  async function save(asNew = false) {
+    const handle = await saveText(source, base, asNew ? null : (file?.handle ?? null));
+    if (handle === undefined) return;
+    setFile(handle ? { handle, saved: source } : null);
+    flash(handle ? `Saved ${handle.name}` : `Downloaded ${base}${EXTENSION}`);
+  }
+
+  async function open() {
+    const opened = await openText();
+    if (!opened) return;
+    loadSource(opened.text);
+    setFile(opened.handle ? { handle: opened.handle, saved: opened.text } : null);
+    setMenuOpen(false);
+  }
+
+  async function exportImage(kind: "svg" | "png") {
+    if (!mermaid) return;
+    // HTML labels can't be rasterised, so exports use plain SVG text labels.
+    const drawn = await renderMermaid(plainLabels(mermaid));
+    if (kind === "svg") download(`${base}.svg`, drawn, "image/svg+xml");
+    else download(`${base}.png`, await svgToPng(drawn));
+  }
+
+  async function copy(text: string, message: string) {
+    await navigator.clipboard.writeText(text);
+    flash(message);
+  }
+
+  // Latest save/open for the global keyboard shortcuts.
+  const actions = useRef({ save: (_asNew: boolean) => {}, open: () => {} });
+  actions.current = { save: (asNew) => run(() => save(asNew)), open: () => run(open) };
+  const dirty = file != null && file.saved !== source;
 
   function switchView(next: ViewKind) {
     map.resetFit();
@@ -230,6 +332,15 @@ export function App() {
               <ViewSwitch value={viewKind} onChange={switchView} />
               <button
                 type="button"
+                onClick={() => setMenuOpen((open) => !open)}
+                aria-expanded={menuOpen}
+                className={menuOpen ? `${chip} border-accent text-accent` : plainChip}
+              >
+                <Save aria-hidden="true" className="size-4" />
+                File{dirty ? " •" : ""}
+              </button>
+              <button
+                type="button"
                 onClick={() => setHelpOpen((open) => !open)}
                 aria-expanded={helpOpen}
                 className={helpOpen ? `${chip} border-accent text-accent` : plainChip}
@@ -237,21 +348,85 @@ export function App() {
                 <BookOpen aria-hidden="true" className="size-4" />
                 How to
               </button>
-              <button
-                type="button"
-                onClick={onCopy}
-                disabled={!mermaid}
-                className={`${plainChip} disabled:opacity-40`}
-              >
-                {copied ? (
-                  <Check aria-hidden="true" className="size-4" />
-                ) : (
-                  <Copy aria-hidden="true" className="size-4" />
-                )}
-                {copied ? "Copied" : "Mermaid"}
-              </button>
             </div>
           </header>
+
+          {menuOpen ? (
+            <section
+              aria-label="File"
+              className="rounded-card border border-border bg-surface/90 p-3 text-sm"
+            >
+              <p className="px-1 pb-3 text-xs text-muted">
+                {file
+                  ? `${dirty ? "Unsaved changes to" : "Saved to"} ${file.handle.name}.`
+                  : "Kept in this browser automatically. Save to a file to keep it anywhere."}
+              </p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <MenuButton
+                  icon={FolderOpen}
+                  label="Open…"
+                  hint="Ctrl+O"
+                  onClick={() => run(open)}
+                />
+                <MenuButton
+                  icon={Save}
+                  label="Save"
+                  hint="Ctrl+S"
+                  onClick={() => run(() => save())}
+                />
+                <MenuButton
+                  icon={Download}
+                  label="Save as…"
+                  hint="⇧Ctrl+S"
+                  onClick={() => run(() => save(true))}
+                />
+                <MenuButton
+                  icon={FileDown}
+                  label="Export SVG"
+                  disabled={!mermaid}
+                  onClick={() => run(() => exportImage("svg"))}
+                />
+                <MenuButton
+                  icon={Image}
+                  label="Export PNG"
+                  disabled={!mermaid}
+                  onClick={() => run(() => exportImage("png"))}
+                />
+                <MenuButton
+                  icon={FileDown}
+                  label="Export Mermaid"
+                  hint=".mmd"
+                  disabled={!mermaid}
+                  onClick={() => download(`${base}.mmd`, mermaid)}
+                />
+                <MenuButton
+                  icon={Copy}
+                  label="Copy Mermaid"
+                  disabled={!mermaid}
+                  onClick={() => run(() => copy(mermaid, "Mermaid code copied"))}
+                />
+                <MenuButton
+                  icon={Link}
+                  label="Copy share link"
+                  onClick={() =>
+                    run(async () => copy(await shareUrl(source, viewKind), "Link copied"))
+                  }
+                />
+                {install ? (
+                  <MenuButton
+                    icon={MonitorDown}
+                    label="Install app"
+                    onClick={() =>
+                      run(async () => {
+                        await install.prompt();
+                        setInstall(null);
+                      })
+                    }
+                  />
+                ) : null}
+              </div>
+            </section>
+          ) : null}
 
           {helpOpen ? <HowTo onClose={() => setHelpOpen(false)} /> : null}
 
@@ -401,7 +576,42 @@ export function App() {
           </span>
         ) : null}
       </button>
+      {toast ? (
+        <p
+          role="status"
+          className="absolute bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-border bg-surface-2 px-4 py-2 text-sm shadow-lg"
+        >
+          {toast}
+        </p>
+      ) : null}
     </main>
+  );
+}
+
+function MenuButton({
+  icon: Icon,
+  label,
+  hint,
+  disabled,
+  onClick,
+}: {
+  icon: typeof Save;
+  label: string;
+  hint?: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="tap flex min-h-11 items-center gap-2 rounded-xl border border-border bg-surface-2/80 px-3 text-left disabled:opacity-40"
+    >
+      <Icon aria-hidden="true" className="size-4 shrink-0 text-accent" />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {hint ? <span className="hidden text-xs text-muted sm:inline">{hint}</span> : null}
+    </button>
   );
 }
 
@@ -598,6 +808,23 @@ function HowTo({ onClose }: { onClose: () => void }) {
         round button (or Esc) to explore the map: drag to move, scroll or pinch to zoom,
         double-click to fit. Ctrl+E switches back.
       </p>
+      <div className="mt-4 rounded-xl border border-border bg-surface-2/60 p-3">
+        <p className="inline-flex items-center gap-2 font-medium text-fg">
+          <Bot aria-hidden="true" className="size-4 text-accent" />
+          For AI agents
+        </p>
+        <p className="mt-1 text-muted">
+          Write a script, then open{" "}
+          <span className="font-mono break-all text-fg">{location.href.split("#")[0]}#text=</span>
+          <span className="text-fg">&lt;url-encoded script&gt;</span> (add{" "}
+          <span className="font-mono text-fg">&amp;view=flow</span> for the flow view). The full
+          guide is at{" "}
+          <a className="text-accent underline" href="agents.md" target="_blank" rel="noreferrer">
+            agents.md
+          </a>
+          .
+        </p>
+      </div>
     </section>
   );
 }
