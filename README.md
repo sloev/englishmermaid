@@ -1,0 +1,47 @@
+# Plainpath
+
+Describe screens, layout and interactions in plain English and get a live
+[Mermaid](https://mermaid.js.org) diagram behind your text.
+
+```
+Title: Shop
+Screen: Products
+  Show Header
+    Show Logo, Search, Cart Icon
+  For each product in products
+    Show Product Card
+  If cart is empty
+    Show Empty Hint
+  Else
+    Show Checkout Button
+  On tap Cart Icon go to Cart
+
+Component: Product Card
+  Show Image, Title, Price
+  On tap Add go to Cart
+```
+
+| Line                                | Meaning                                                              |
+| ----------------------------------- | -------------------------------------------------------------------- |
+| `Screen: Name` / `Component: Name`  | A page, or a reusable part. Indented lines belong to it.             |
+| `Show A, B`                         | Parts of the layout. Indent under a Show to nest.                    |
+| `For each x in y`                   | A repeated part. Children indented, or `… show Row` inline.          |
+| `If …` / `Else if …` / `Else`       | Choices. Children indented, or end with `go to X` / `show X`.        |
+| `On tap Buy`                        | An interaction. `go to X` inline, or If/Else lines below.            |
+| `Go to X`                           | A link to another screen.                                            |
+| `Loop … until … then go to X`       | Wait or repeat, then move on.                                        |
+| `Title:`, `Note:`, `//`             | Diagram title and comments.                                          |
+
+Two views: **Storyboard** (each screen with its layout) and **Flow** (only how
+screens connect). The round button in the lower left, Esc or Ctrl/⌘+E switches
+between the editor and the full-screen map (drag, scroll or pinch to zoom,
+double-click to fit).
+
+## Develop
+
+```sh
+npm install
+npm run dev     # http://localhost:8080
+npm test        # parser tests
+npm run build   # static site in dist/ with relative paths, host anywhere
+```

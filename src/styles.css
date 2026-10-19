@@ -18,6 +18,9 @@
   --color-go: #8fbf9f;
   --color-if: #e7c27a;
   --color-loop: #9db7d4;
+  --color-show: #c9d3a4;
+  --color-on: #d99bc4;
+  --color-each: #b3a6e0;
   --color-danger: #e07a6a;
   --color-danger-soft: #3a2420;
   --color-border: #342f26;
@@ -55,7 +58,9 @@
   line-height: 1.65;
   letter-spacing: 0;
   font-variant-ligatures: none;
-  font-feature-settings: "liga" 0, "calt" 0;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
   tab-size: 2;
 }
 
@@ -133,15 +138,45 @@
   color: transparent;
 }
 
-.tok-screen { color: var(--color-accent); font-weight: 600; }
-.tok-go { color: var(--color-go); font-weight: 600; }
-.tok-if { color: var(--color-if); font-weight: 600; }
-.tok-loop { color: var(--color-loop); font-weight: 600; }
-.tok-until,
-.tok-then { color: var(--color-loop); font-weight: 500; }
-.tok-name { color: var(--color-fg); }
+.tok-screen {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.tok-go {
+  color: var(--color-go);
+  font-weight: 600;
+}
+.tok-if {
+  color: var(--color-if);
+  font-weight: 600;
+}
+.tok-loop {
+  color: var(--color-loop);
+  font-weight: 600;
+}
+.tok-show {
+  color: var(--color-show);
+  font-weight: 600;
+}
+.tok-on {
+  color: var(--color-on);
+  font-weight: 600;
+}
+.tok-each {
+  color: var(--color-each);
+  font-weight: 600;
+}
+.tok-name {
+  color: var(--color-fg);
+}
 .tok-cond,
-.tok-plain { color: var(--color-muted); }
+.tok-plain,
+.tok-note {
+  color: var(--color-muted);
+}
+.tok-note {
+  font-style: italic;
+}
 
 .map-canvas {
   background-color: var(--color-bg);
@@ -191,11 +226,15 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .editor-layer {
-    transition: opacity 160ms ease, visibility 0s linear 160ms;
+    transition:
+      opacity 160ms ease,
+      visibility 0s linear 160ms;
   }
 
   .editor-layer.is-open {
-    transition: opacity 160ms ease, visibility 0s;
+    transition:
+      opacity 160ms ease,
+      visibility 0s;
   }
 }
 
@@ -205,7 +244,10 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .tap {
-    transition: transform 150ms ease, background-color 150ms ease, border-color 150ms ease;
+    transition:
+      transform 150ms ease,
+      background-color 150ms ease,
+      border-color 150ms ease;
   }
 
   .tap:active {

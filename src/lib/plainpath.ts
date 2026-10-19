@@ -1,48 +1,110 @@
+// Plainpath: describe screens, layout and interactions in plain English,
+// get a Mermaid flowchart back. Pure module: no DOM, no imports.
+
 export type TokenKind =
-  | "plain"
-  | "screen"
-  | "go"
-  | "if"
-  | "loop"
-  | "until"
-  | "then"
-  | "name"
-  | "cond";
+  "plain" | "screen" | "go" | "if" | "loop" | "show" | "on" | "each" | "name" | "cond" | "note";
 
 export type Token = { text: string; kind: TokenKind };
 
-export type LineKind = "blank" | "title" | "note" | "screen" | "go" | "if" | "loop" | "unknown";
+type Tail = { kind: "go"; to: string } | { kind: "show"; names: string[] };
 
-export type ClassifiedLine = {
-  kind: LineKind;
-  tokens: Token[];
-  error?: string;
-  title?: string;
-  screen?: string;
-  dest?: string;
-  condition?: string;
-  action?: string;
-  until?: string;
+type Stmt =
+  | { t: "blank" }
+  | { t: "note" }
+  | { t: "title"; text: string }
+  | { t: "block"; name: string; component: boolean }
+  | { t: "if"; cond: string; tail?: Tail }
+  | { t: "elseif"; cond: string; tail?: Tail }
+  | { t: "else"; tail?: Tail }
+  | { t: "each"; item: string; tail?: Tail }
+  | { t: "on"; event: string; tail?: Tail }
+  | { t: "go"; to: string }
+  | { t: "show"; names: string[] }
+  | { t: "loop"; action: string; until: string; to: string }
+  | { t: "unknown" };
+
+export type Line = { tokens: Token[]; indent: number; stmt: Stmt; error?: string };
+
+export type Branch = { cond: string | null; line: number; children: Node[] };
+
+export type Node =
+  | { kind: "show"; name: string; line: number; children: Node[] }
+  | { kind: "each"; item: string; line: number; children: Node[] }
+  | { kind: "on"; event: string; line: number; children: Node[] }
+  | { kind: "if"; line: number; branches: Branch[] }
+  | { kind: "go"; to: string; line: number }
+  | { kind: "loop"; action: string; until: string; to: string; line: number };
+
+export type Block = {
+  name: string;
+  kind: "screen" | "component" | "ghost";
+  line: number;
+  children: Node[];
 };
 
-export type JourneyEdge =
-  | { kind: "go"; from: string; to: string; line: number }
-  | { kind: "if"; from: string; to: string; condition: string; line: number }
-  | { kind: "loop"; from: string; to: string; action: string; until: string; line: number };
+export type Issue = { line: number; message: string };
 
-export type JourneyScreen = { name: string; implicit: boolean };
+export type ViewKind = "flow" | "story";
 
-export type JourneyIssue = { line: number; message: string };
-
-export type JourneyModel = {
+export type Journey = {
   title: string | null;
-  screens: JourneyScreen[];
-  edges: JourneyEdge[];
-  issues: JourneyIssue[];
-  badLines: number[];
-  lines: ClassifiedLine[];
-  mermaid: string;
+  blocks: Block[];
+  issues: Issue[];
+  lines: Line[];
 };
+
+// ---------------------------------------------------------------- examples
+
+const SHOP = `Title: Shop
+Screen: Products
+  Show Header
+    Show Logo, Search, Cart Icon
+  For each product in products
+    Show Product Card
+  If cart is empty
+    Show Empty Hint
+  Else if cart has 10+ items
+    Show Bulk Discount Banner
+  Else
+    Show Checkout Button
+  On tap Cart Icon go to Cart
+  On submit search go to Results
+
+Component: Product Card
+  Show Image, Title, Price
+  On tap Add go to Cart
+
+Screen: Cart
+  For each item in cart show Cart Row
+  On tap Checkout
+    If signed in go to Payment
+    Else go to Sign In
+
+Screen: Payment
+  Loop bank checks the card until it answers then go to Receipt
+  If card is declined go to Payment
+`;
+
+const SIGNUP = `Title: Create account
+Screen: Landing
+  Show Hero, Sign Up Button
+  On tap Sign Up Button go to Sign Up
+
+Screen: Sign Up
+  Show Email Field, Password Field
+  On submit
+    If email is taken
+      Show Error Banner
+    Else if form is valid go to Check Inbox
+    Else
+      Show Field Hints
+
+Screen: Check Inbox
+  Loop waiting for the link until they tap it then go to Welcome
+
+Screen: Welcome
+  Go to Home
+`;
 
 const COFFEE = `Title: Morning coffee
 Screen: Home
@@ -67,415 +129,682 @@ Screen: Success
 Go to Home
 `;
 
-const SIGNUP = `Title: Create account
-Screen: Landing
-Go to Sign Up
-
-Screen: Sign Up
-If email is taken go to Sign Up
-If form is valid go to Check Inbox
-
-Screen: Check Inbox
-Loop waiting for the link until they tap it then go to Welcome
-
-Screen: Welcome
-Go to Home
-
-Screen: Home
-`;
-
-const CHECKOUT = `Title: Checkout
-Screen: Cart
-Go to Shipping
-
-Screen: Shipping
-If address is missing go to Shipping
-Go to Payment
-
-Screen: Payment
-If card is declined go to Payment
-Loop bank checks the card until approval arrives then go to Receipt
-
-Screen: Receipt
-`;
-
 export const EXAMPLES: { id: string; label: string; source: string }[] = [
-  { id: "coffee", label: "Coffee", source: COFFEE },
+  { id: "shop", label: "Shop", source: SHOP },
   { id: "signup", label: "Sign up", source: SIGNUP },
-  { id: "checkout", label: "Checkout", source: CHECKOUT },
+  { id: "coffee", label: "Coffee", source: COFFEE },
 ];
 
-export const STARTER = COFFEE;
+export const STARTER = SHOP;
 
 export const BLANK = `Screen: Home
-`;
+  `;
 
-export type SnippetId = "screen" | "go" | "if" | "loop";
+export type SnippetId = "screen" | "show" | "each" | "if" | "else" | "on" | "go";
 
-export const SNIPPETS: Record<SnippetId, { text: string; cursor: number; label: string; hint: string }> = {
-  screen: { text: "Screen: ", cursor: 8, label: "Screen:", hint: "Name a page" },
-  go: { text: "Go to ", cursor: 6, label: "Go to", hint: "Link onward" },
-  if: { text: "If  go to ", cursor: 3, label: "If", hint: "A choice" },
-  loop: { text: "Loop  until  then go to ", cursor: 5, label: "Loop", hint: "Repeat until" },
+export const SNIPPETS: Record<
+  SnippetId,
+  { text: string; cursor: number; label: string; hint: string; kind: TokenKind }
+> = {
+  screen: { text: "Screen: ", cursor: 8, label: "Screen:", hint: "a page", kind: "screen" },
+  show: { text: "Show ", cursor: 5, label: "Show", hint: "a part", kind: "show" },
+  each: { text: "For each  show ", cursor: 9, label: "For each", hint: "a list", kind: "each" },
+  if: { text: "If ", cursor: 3, label: "If", hint: "a choice", kind: "if" },
+  else: { text: "Else", cursor: 4, label: "Else", hint: "otherwise", kind: "if" },
+  on: { text: "On  go to ", cursor: 3, label: "On", hint: "a tap or event", kind: "on" },
+  go: { text: "Go to ", cursor: 6, label: "Go to", hint: "a link", kind: "go" },
 };
 
-function withPrefix(prefix: string, parts: Token[]): Token[] {
-  const tokens: Token[] = [];
-  if (prefix) tokens.push({ text: prefix, kind: "plain" });
-  for (const part of parts) {
-    if (part.text) tokens.push(part);
+// ------------------------------------------------------------- line level
+
+// Index of the last whole-word, case-insensitive `kw` in `hay` (after `from`).
+function lastWord(hay: string, kw: string, from = 0): number {
+  const re = new RegExp(`(?:^|\\s)(${kw.replace(/ /g, "\\s+")})(?=\\s|$)`, "gi");
+  let at = -1;
+  for (let m = re.exec(hay); m; m = re.exec(hay)) {
+    const start = m.index + m[0].length - m[1].length;
+    if (start >= from) at = start;
   }
-  return tokens;
+  return at;
 }
 
-function findKeyword(hay: string, kw: string, fromEnd: boolean): number {
-  const lower = hay.toLowerCase();
-  const needle = kw.toLowerCase();
-  let idx = fromEnd ? lower.lastIndexOf(needle) : lower.indexOf(needle);
-  const valid = (i: number) => {
-    if (i < 0) return false;
-    const beforeOk = i === 0 || /\s/.test(hay[i - 1] ?? "");
-    const after = i + needle.length;
-    const afterOk = after === hay.length || /\s/.test(hay[after] ?? "");
-    return beforeOk && afterOk;
-  };
-  while (idx !== -1 && !valid(idx)) {
-    idx = fromEnd ? lower.lastIndexOf(needle, idx - 1) : lower.indexOf(needle, idx + 1);
-  }
-  return idx;
+function splitNames(text: string): string[] {
+  return text
+    .split(/\s*,\s*(?:and\s+)?|\s+and\s+/i)
+    .map((name) => name.trim())
+    .filter(Boolean);
 }
 
-function matchLoop(body: string): { untilAt: number; thenAt: number; goAt: number; goEnd: number } | null {
-  const phrase = /\bthen\s+go to\b/gi;
-  let last: RegExpExecArray | null = null;
-  let match: RegExpExecArray | null;
-  while ((match = phrase.exec(body))) last = match;
-  if (!last || last.index < 4) return null;
-  const thenAt = last.index;
-  const rel = last[0].toLowerCase().search(/go to/);
-  if (rel < 0) return null;
-  const goAt = thenAt + rel;
-  const goEnd = goAt + 5;
-  const head = body.slice(0, thenAt);
-  const untilRe = /\buntil\b/gi;
-  let untilAt = -1;
-  let untilMatch: RegExpExecArray | null;
-  while ((untilMatch = untilRe.exec(head))) untilAt = untilMatch.index;
-  if (untilAt < 4) return null;
-  return { untilAt, thenAt, goAt, goEnd };
+// Strip glue words people naturally type before a tail: "If x, then go to y".
+function trimGlue(text: string): string {
+  return text.replace(/(?:\s*,)?(?:\s+then)?\s*,?\s*$/i, "").trim();
 }
 
-function colorLoose(body: string): Token[] {
-  const words: { kw: string; kind: TokenKind }[] = [
-    { kw: "go to", kind: "go" },
-    { kw: "screen:", kind: "screen" },
-    { kw: "until", kind: "until" },
-    { kw: "then", kind: "then" },
-    { kw: "loop", kind: "loop" },
-    { kw: "if", kind: "if" },
+type Seg = [string, TokenKind];
+
+// `If x go to Y` / `For each x show Y`: split off an optional action at the end.
+function withTail(body: string, start: number): { head: string; tail?: Tail; segs: Seg[] } {
+  const goAt = lastWord(body, "go to", start);
+  const showAt = goAt < 0 ? lastWord(body, "show", start) : -1;
+  const at = goAt >= 0 ? goAt : showAt;
+  if (at < 0) return { head: body.slice(start).trim(), segs: [[body.slice(start), "cond"]] };
+  const kwLen = goAt >= 0 ? body.slice(at).match(/^go\s+to/i)![0].length : 4;
+  const rest = body.slice(at + kwLen).trim();
+  const segs: Seg[] = [
+    [body.slice(start, at), "cond"],
+    [body.slice(at, at + kwLen), goAt >= 0 ? "go" : "show"],
+    [body.slice(at + kwLen), "name"],
   ];
-  const tokens: Token[] = [];
-  let i = 0;
-  while (i < body.length) {
-    let hit: { kw: string; kind: TokenKind } | null = null;
-    for (const word of words) {
-      if (body.slice(i, i + word.kw.length).toLowerCase() !== word.kw) continue;
-      const beforeOk = i === 0 || /\s/.test(body[i - 1] ?? "");
-      const after = i + word.kw.length;
-      const afterOk = after === body.length || /\s/.test(body[after] ?? "") || word.kw.endsWith(":");
-      if (beforeOk && afterOk) {
-        hit = word;
-        break;
-      }
-    }
-    if (hit) {
-      tokens.push({ text: body.slice(i, i + hit.kw.length), kind: hit.kind });
-      i += hit.kw.length;
-      continue;
-    }
-    let j = i + 1;
-    while (j < body.length) {
-      const could = words.some((word) => body.slice(j, j + word.kw.length).toLowerCase() === word.kw);
-      if (could) break;
-      j += 1;
-    }
-    tokens.push({ text: body.slice(i, j), kind: "plain" });
-    i = j;
-  }
-  return tokens;
+  const head = trimGlue(body.slice(start, at));
+  if (!rest) return { head, segs };
+  return {
+    head,
+    segs,
+    tail: goAt >= 0 ? { kind: "go", to: rest } : { kind: "show", names: splitNames(rest) },
+  };
 }
 
-export function classifyLine(line: string): ClassifiedLine {
-  const lead = line.match(/^[ \t]*/)?.[0] ?? "";
-  let body = line.slice(lead.length);
-  const bullet = body.match(/^(?:[-*•]\s+|\d+[.)]\s+)/);
-  let bulletText = "";
-  if (bullet) {
-    bulletText = bullet[0];
-    body = body.slice(bulletText.length);
-  }
-  const prefix = lead + bulletText;
+function badTail(body: string, start: number): string | undefined {
+  const goAt = lastWord(body, "go to", start);
+  if (
+    goAt >= 0 &&
+    !body
+      .slice(goAt)
+      .replace(/^go\s+to/i, "")
+      .trim()
+  )
+    return "Say which screen to go to";
+  const showAt = lastWord(body, "show", start);
+  if (goAt < 0 && showAt >= 0 && !body.slice(showAt + 4).trim()) return "Say what to show";
+  return undefined;
+}
 
-  if (body.trim() === "") {
-    return { kind: "blank", tokens: line ? [{ text: line, kind: "plain" }] : [] };
+export function classifyLine(raw: string): Line {
+  const lead = raw.match(/^[ \t]*/)![0];
+  const indent = lead.replace(/\t/g, "  ").length;
+  let body = raw.slice(lead.length);
+  const bullet = body.match(/^(?:[-*•]\s+|\d+[.)]\s+)/)?.[0] ?? "";
+  body = body.slice(bullet.length);
+  const prefix = lead + bullet;
+  const make = (stmt: Stmt, segs: Seg[], error?: string): Line => ({
+    indent,
+    stmt,
+    error,
+    tokens: [[prefix, "plain"] as Seg, ...segs]
+      .filter(([text]) => text)
+      .map(([text, kind]) => ({ text, kind })),
+  });
+  const word = (re: RegExp) => body.match(re)?.[0];
+  let m: string | undefined;
+
+  if (!body.trim()) return make({ t: "blank" }, [[body, "plain"]]);
+  if ((m = word(/^(?:note:|\/\/)/i))) return make({ t: "note" }, [[body, "note"]]);
+
+  if ((m = word(/^title:/i))) {
+    const text = body.slice(m.length).trim();
+    return make(
+      { t: "title", text },
+      [
+        [m, "screen"],
+        [body.slice(m.length), "name"],
+      ],
+      text ? undefined : "Give the title a name",
+    );
   }
 
-  if (/^screen:/i.test(body)) {
-    const name = body.slice(7).trim();
-    const tokens = withPrefix(prefix, [
-      { text: body.slice(0, 7), kind: "screen" },
-      { text: body.slice(7), kind: "name" },
-    ]);
-    if (!name) return { kind: "screen", tokens, error: "Missing screen name after 'Screen:'" };
-    return { kind: "screen", tokens, screen: name };
+  if ((m = word(/^(?:screen|page|component):/i))) {
+    const name = body.slice(m.length).trim();
+    const component = /^component/i.test(m);
+    return make(
+      { t: "block", name, component },
+      [
+        [m, "screen"],
+        [body.slice(m.length), "name"],
+      ],
+      name ? undefined : `Name the ${component ? "component" : "screen"} after '${m}'`,
+    );
   }
 
-  if (/^title:/i.test(body)) {
-    const title = body.slice(6).trim();
-    const tokens = withPrefix(prefix, [
-      { text: body.slice(0, 6), kind: "screen" },
-      { text: body.slice(6), kind: "name" },
-    ]);
-    if (!title) return { kind: "title", tokens, error: "Missing title after 'Title:'" };
-    return { kind: "title", tokens, title };
+  if ((m = word(/^(?:else\s+if|otherwise\s+if)(?=\s|$)/i))) {
+    const { head, tail, segs } = withTail(body, m.length);
+    return make(
+      { t: "elseif", cond: head, tail },
+      [[m, "if"], ...segs],
+      head ? badTail(body, m.length) : "Say what the condition is",
+    );
   }
 
-  if (/^note:/i.test(body)) {
-    return {
-      kind: "note",
-      tokens: withPrefix(prefix, [
-        { text: body.slice(0, 5), kind: "cond" },
-        { text: body.slice(5), kind: "plain" },
-      ]),
+  if ((m = word(/^(?:else|otherwise)(?=[\s,:]|$)/i))) {
+    const rest = body.slice(m.length);
+    if (!rest.trim())
+      return make({ t: "else" }, [
+        [m, "if"],
+        [rest, "plain"],
+      ]);
+    const { tail, segs } = withTail(body, m.length);
+    return make(
+      { t: "else", tail },
+      [[m, "if"], ...segs],
+      tail
+        ? undefined
+        : "After Else, write 'go to' or 'show' – or put the steps on the lines below",
+    );
+  }
+
+  if ((m = word(/^if(?=\s|$)/i))) {
+    const { head, tail, segs } = withTail(body, m.length);
+    return make(
+      { t: "if", cond: head, tail },
+      [[m, "if"], ...segs],
+      head ? badTail(body, m.length) : "Say what the condition is after 'If'",
+    );
+  }
+
+  if ((m = word(/^for\s+each(?=\s|$)/i))) {
+    const { head, tail, segs } = withTail(body, m.length);
+    return make(
+      { t: "each", item: head, tail },
+      [[m, "each"], ...segs.map(([text, kind]): Seg => [text, kind === "cond" ? "name" : kind])],
+      head ? badTail(body, m.length) : "Say what to repeat, like 'For each product in products'",
+    );
+  }
+
+  if ((m = word(/^(?:on|when)(?=\s|$)/i))) {
+    const { head, tail, segs } = withTail(body, m.length);
+    return make(
+      { t: "on", event: head, tail },
+      [[m, "on"], ...segs],
+      head ? badTail(body, m.length) : "Say which event, like 'On tap Buy'",
+    );
+  }
+
+  if ((m = word(/^go\s+to(?=\s|$)/i))) {
+    const to = body.slice(m.length).trim();
+    return make(
+      { t: "go", to },
+      [
+        [m, "go"],
+        [body.slice(m.length), "name"],
+      ],
+      to ? undefined : "Say which screen to go to",
+    );
+  }
+
+  if ((m = word(/^show(?=\s|$)/i))) {
+    const names = splitNames(body.slice(m.length));
+    return make(
+      { t: "show", names },
+      [
+        [m, "show"],
+        [body.slice(m.length), "name"],
+      ],
+      names.length ? undefined : "Say what to show",
+    );
+  }
+
+  if ((m = word(/^loop(?=\s|$)/i))) {
+    const untilAt = lastWord(body, "until", m.length);
+    const goAt = lastWord(body, "go to", untilAt);
+    const thenAt = goAt < 0 ? -1 : lastWord(body.slice(0, goAt), "then", untilAt);
+    const action = untilAt < 0 ? "" : body.slice(m.length, untilAt).trim();
+    const untilEnd = thenAt >= 0 ? thenAt : goAt;
+    const until = goAt < 0 ? "" : body.slice(untilAt + 5, untilEnd).trim();
+    const goLen = goAt < 0 ? 0 : body.slice(goAt).match(/^go\s+to/i)![0].length;
+    const to = goAt < 0 ? "" : body.slice(goAt + goLen).trim();
+    if (!action || !until || !to) {
+      return make(
+        { t: "loop", action, until, to },
+        [[body, "plain"]],
+        "Write it as: Loop <something> until <event> then go to <screen>",
+      );
+    }
+    const segs: Seg[] = [
+      [m, "loop"],
+      [body.slice(m.length, untilAt), "cond"],
+      [body.slice(untilAt, untilAt + 5), "loop"],
+      [body.slice(untilAt + 5, untilEnd), "cond"],
+      [thenAt >= 0 ? body.slice(thenAt, goAt) : "", "loop"],
+      [body.slice(goAt, goAt + goLen), "go"],
+      [body.slice(goAt + goLen), "name"],
+    ];
+    return make({ t: "loop", action, until, to }, segs);
+  }
+
+  let error = "Start the line with Screen:, Show, For each, If, Else, On or Go to";
+  if (/^(?:screen|page|component|title)\b/i.test(body)) error = "Add a colon, like 'Screen: Home'";
+  else if (/^goto\b/i.test(body)) error = "Write 'Go to' as two words";
+  else if (/^foreach\b/i.test(body)) error = "Write 'For each' as two words";
+  else if (/^elif\b|^elseif\b/i.test(body)) error = "Write 'Else if' as two words";
+  return make({ t: "unknown" }, [[body, "plain"]], error);
+}
+
+// ------------------------------------------------------------ tree level
+
+type Frame = { indent: number; children: Node[] };
+
+function tailNodes(tail: Tail | undefined, line: number): Node[] {
+  if (!tail) return [];
+  if (tail.kind === "go") return [{ kind: "go", to: tail.to, line }];
+  return tail.names.map((name) => ({ kind: "show" as const, name, line, children: [] }));
+}
+
+export function parse(source: string): Journey {
+  const lines = source.split(/\r\n|\n|\r/).map(classifyLine);
+  const blocks: Block[] = [];
+  const issues: Issue[] = [];
+  let title: string | null = null;
+  let block: Block | null = null;
+  let stack: Frame[] = [];
+
+  lines.forEach((line, index) => {
+    const number = index + 1;
+    const fail = (message: string) => {
+      line.error = message;
+      issues.push({ line: number, message });
     };
-  }
-
-  if (/^go to(?=\s|$)/i.test(body)) {
-    const dest = body.slice(5).trim();
-    const tokens = withPrefix(prefix, [
-      { text: body.slice(0, 5), kind: "go" },
-      { text: body.slice(5), kind: "name" },
-    ]);
-    if (!dest) return { kind: "go", tokens, error: "Missing destination screen after 'go to'" };
-    return { kind: "go", tokens, dest };
-  }
-
-  if (/^if(?=\s|$)/i.test(body)) {
-    const goAt = findKeyword(body, "go to", true);
-    if (goAt < 0) {
-      return {
-        kind: "if",
-        tokens: withPrefix(prefix, colorLoose(body)),
-        error: "If needs a condition, then 'go to' and a screen name",
+    if (line.error) return issues.push({ line: number, message: line.error });
+    const { stmt } = line;
+    if (stmt.t === "blank" || stmt.t === "note") return;
+    if (stmt.t === "title") return void (title = stmt.text);
+    if (stmt.t === "block") {
+      if (blocks.some((b) => b.name.toLowerCase() === stmt.name.toLowerCase())) {
+        return fail(`'${stmt.name}' is already defined above`);
+      }
+      block = {
+        name: stmt.name,
+        kind: stmt.component ? "component" : "screen",
+        line: number,
+        children: [],
       };
+      blocks.push(block);
+      stack = [{ indent: -1, children: block.children }];
+      return;
     }
-    const condition = body.slice(2, goAt).trim();
-    const dest = body.slice(goAt + 5).trim();
-    const tokens = withPrefix(prefix, [
-      { text: body.slice(0, 2), kind: "if" },
-      { text: body.slice(2, goAt), kind: "cond" },
-      { text: body.slice(goAt, goAt + 5), kind: "go" },
-      { text: body.slice(goAt + 5), kind: "name" },
-    ]);
-    if (!condition) return { kind: "if", tokens, error: "Missing condition after 'If'" };
-    if (!dest) return { kind: "if", tokens, error: "Missing destination screen after 'go to'" };
-    return { kind: "if", tokens, condition, dest };
-  }
+    if (!block) return fail("Start with a 'Screen:' line first");
 
-  if (/^loop(?=\s|$)/i.test(body)) {
-    const found = matchLoop(body);
-    if (!found) {
-      return {
-        kind: "loop",
-        tokens: withPrefix(prefix, colorLoose(body)),
-        error: "Loop needs an action, 'until', then 'then go to' and a screen",
-      };
+    while (stack.length > 1 && stack[stack.length - 1].indent >= line.indent) stack.pop();
+    const siblings = stack[stack.length - 1].children;
+    const open = (children: Node[]) => stack.push({ indent: line.indent, children });
+
+    switch (stmt.t) {
+      case "show": {
+        const nodes = stmt.names.map((name) => ({
+          kind: "show" as const,
+          name,
+          line: number,
+          children: [] as Node[],
+        }));
+        siblings.push(...nodes);
+        open(nodes[nodes.length - 1].children);
+        return;
+      }
+      case "go":
+        siblings.push({ kind: "go", to: stmt.to, line: number });
+        return;
+      case "loop":
+        siblings.push({
+          kind: "loop",
+          action: stmt.action,
+          until: stmt.until,
+          to: stmt.to,
+          line: number,
+        });
+        return;
+      case "each":
+      case "on": {
+        const node: Node =
+          stmt.t === "each"
+            ? {
+                kind: "each",
+                item: stmt.item,
+                line: number,
+                children: tailNodes(stmt.tail, number),
+              }
+            : {
+                kind: "on",
+                event: stmt.event,
+                line: number,
+                children: tailNodes(stmt.tail, number),
+              };
+        siblings.push(node);
+        open(node.children);
+        return;
+      }
+      case "if": {
+        const branch: Branch = {
+          cond: stmt.cond,
+          line: number,
+          children: tailNodes(stmt.tail, number),
+        };
+        siblings.push({ kind: "if", line: number, branches: [branch] });
+        open(branch.children);
+        return;
+      }
+      case "elseif":
+      case "else": {
+        const last = siblings[siblings.length - 1];
+        if (last?.kind !== "if") return fail("Put this right after an If, at the same indent");
+        if (last.branches[last.branches.length - 1].cond === null)
+          return fail("This If already has an Else");
+        const branch: Branch = {
+          cond: stmt.t === "elseif" ? stmt.cond : null,
+          line: number,
+          children: tailNodes(stmt.tail, number),
+        };
+        last.branches.push(branch);
+        open(branch.children);
+        return;
+      }
+      default:
+        return;
     }
-    const action = body.slice(4, found.untilAt).trim();
-    const event = body.slice(found.untilAt + 5, found.thenAt).trim();
-    const dest = body.slice(found.goEnd).trim();
-    const tokens = withPrefix(prefix, [
-      { text: body.slice(0, 4), kind: "loop" },
-      { text: body.slice(4, found.untilAt), kind: "cond" },
-      { text: body.slice(found.untilAt, found.untilAt + 5), kind: "until" },
-      { text: body.slice(found.untilAt + 5, found.thenAt), kind: "cond" },
-      { text: body.slice(found.thenAt, found.thenAt + 4), kind: "then" },
-      { text: body.slice(found.thenAt + 4, found.goAt), kind: "plain" },
-      { text: body.slice(found.goAt, found.goEnd), kind: "go" },
-      { text: body.slice(found.goEnd), kind: "name" },
-    ]);
-    if (!action) return { kind: "loop", tokens, error: "Missing what to repeat after 'Loop'" };
-    if (!event) return { kind: "loop", tokens, error: "Missing the event after 'until'" };
-    if (!dest) return { kind: "loop", tokens, error: "Missing destination screen after 'go to'" };
-    return { kind: "loop", tokens, action, until: event, dest };
-  }
+  });
 
-  let error = "Not a step I understand. Start with Screen, Go to, If, or Loop";
-  if (/^screen\b/i.test(body)) error = "Write 'Screen:' then the screen name";
-  else if (/^goto\b/i.test(body)) error = "Write 'Go to' as two words, then the screen name";
-  else if (/^go to\S/i.test(body)) error = "Add a space after 'Go to', then the screen name";
-  else if (/^title\b/i.test(body)) error = "Write 'Title:' then the journey name";
-  else if (/^note\b/i.test(body)) error = "Write 'Note:' then the comment";
+  // Screens that are linked to but never written become dashed "ghosts".
+  const known = new Set(blocks.map((b) => b.name.toLowerCase()));
+  const visit = (nodes: Node[]) => {
+    for (const node of nodes) {
+      if (node.kind === "go" || node.kind === "loop") {
+        if (!known.has(node.to.toLowerCase())) {
+          known.add(node.to.toLowerCase());
+          blocks.push({ name: node.to, kind: "ghost", line: node.line, children: [] });
+        }
+      } else if (node.kind === "if") node.branches.forEach((b) => visit(b.children));
+      else visit(node.children);
+    }
+  };
+  blocks.slice().forEach((b) => visit(b.children));
 
-  return { kind: "unknown", tokens: withPrefix(prefix, [{ text: body, kind: "plain" }]), error };
+  return { title, blocks, issues, lines };
 }
+
+// --------------------------------------------------------------- mermaid
 
 export function mermaidLabel(input: string): string {
   const clean = input
     .replace(/[\r\n\t]+/g, " ")
     .replace(/&/g, "and")
-    .replace(/[<>[\]{}|#"]/g, "")
+    .replace(/[<>[\]{}|#"`]/g, "")
     .replace(/\\/g, "/")
     .replace(/\s+/g, " ")
     .trim();
-  if (!clean) return "screen";
-  if (clean.length > 72) return `${clean.slice(0, 69)}…`;
-  return clean;
+  if (!clean) return " ";
+  return clean.length > 72 ? `${clean.slice(0, 69)}…` : clean;
 }
 
-function safeTitle(title: string): string | null {
-  const clean = title
-    .replace(/[^A-Za-z0-9 .,'&()-]/g, "")
-    .replace(/-{2,}/g, "-")
-    .trim();
-  if (!clean) return null;
-  return clean.slice(0, 80);
+const COLORS = {
+  go: "#e4a04a",
+  if: "#e7c27a",
+  on: "#d99bc4",
+  loop: "#9db7d4",
+  muted: "#a39888",
+};
+
+const CLASS_DEFS = [
+  "classDef screen fill:#211e17,stroke:#e4a04a,color:#f4efe6,stroke-width:1.5px",
+  "classDef start fill:#e4a04a,stroke:#c4842e,color:#1a1208,stroke-width:1.5px",
+  "classDef component fill:#1b1a22,stroke:#b3a6e0,color:#f4efe6,stroke-width:1.5px",
+  "classDef ghost fill:#14130f,stroke:#a39888,color:#d9d0c2,stroke-dasharray:5 4,stroke-width:1.5px",
+  "classDef show fill:#1c1a15,stroke:#5a5244,color:#f4efe6",
+  "classDef ref fill:#1b1a22,stroke:#b3a6e0,color:#f4efe6",
+  "classDef cond fill:#2a2415,stroke:#e7c27a,color:#f4efe6",
+  "classDef on fill:#26192a,stroke:#d99bc4,color:#f4efe6",
+  "classDef go fill:#2a1f10,stroke:#e4a04a,color:#f4efe6",
+  "classDef loop fill:#17211c,stroke:#8fbf9f,color:#f4efe6",
+];
+
+type EdgeOpts = { label?: string; color?: string; style?: "-->" | "-.->" | "~~~" };
+
+class Writer {
+  out: string[] = [];
+  // Mermaid puts a node in whichever subgraph first mentions it, so links
+  // between screens are held back and written after every subgraph.
+  later: [string, string, EdgeOpts][] = [];
+  classes = new Map<string, string[]>();
+  links: string[] = [];
+  private link = 0;
+  private seq = 0;
+
+  id(prefix: string) {
+    return `${prefix}${this.seq++}`;
+  }
+  line(text: string, depth = 1) {
+    this.out.push(`${"  ".repeat(depth)}${text}`);
+  }
+  tag(id: string, cls: string) {
+    this.classes.set(cls, [...(this.classes.get(cls) ?? []), id]);
+  }
+  // Mermaid numbers every link, invisible ones included, for linkStyle.
+  edge(from: string, to: string, opts: EdgeOpts = {}, depth = 1) {
+    const arrow = opts.style ?? "-->";
+    const label = opts.label && arrow !== "~~~" ? `|"${mermaidLabel(opts.label)}"|` : "";
+    this.line(`${from} ${arrow}${label} ${to}`, depth);
+    if (opts.color)
+      this.links.push(`  linkStyle ${this.link} stroke:${opts.color},stroke-width:1.7px`);
+    this.link += 1;
+  }
+  finish(title: string | null) {
+    for (const [from, to, opts] of this.later) this.edge(from, to, opts);
+    const head = title ? ["---", `title: ${mermaidLabel(title).replace(/:/g, " ")}`, "---"] : [];
+    const classLines = [...this.classes].map(([cls, ids]) => `  class ${ids.join(",")} ${cls}`);
+    return [
+      ...head,
+      ...this.out,
+      ...CLASS_DEFS.map((c) => `  ${c}`),
+      ...classLines,
+      ...this.links,
+    ].join("\n");
+  }
 }
 
-function toMermaid(title: string | null, screens: JourneyScreen[], edges: JourneyEdge[]): string {
-  if (screens.length === 0) return "";
-  const ids = new Map<string, string>();
-  screens.forEach((screen, index) => ids.set(screen.name, `n${index}`));
-  const start = screens.find((screen) => !screen.implicit)?.name ?? screens[0]?.name;
-  const out: string[] = [];
-  const diagramTitle = title ? safeTitle(title) : null;
-  if (diagramTitle) {
-    out.push("---");
-    out.push(`title: ${diagramTitle}`);
-    out.push("---");
-  }
-  out.push("flowchart TD");
-  for (const screen of screens) {
-    out.push(`  ${ids.get(screen.name)}["${mermaidLabel(screen.name)}"]`);
+function findBlock(blocks: Block[], name: string) {
+  const key = name.toLowerCase();
+  return blocks.find((b) => b.name.toLowerCase() === key);
+}
+
+/** Screen-level map: one box per screen, arrows for every way to move on. */
+function flowMermaid(journey: Journey): string {
+  const { blocks } = journey;
+  const w = new Writer();
+  w.out.push("flowchart TD");
+  const ids = new Map<Block, string>();
+  const startBlock = blocks.find((b) => b.kind === "screen");
+  const used = new Set<Block>();
+
+  // Components only appear when they carry interactions of their own.
+  const hasMoves = (nodes: Node[]): boolean =>
+    nodes.some((n) =>
+      n.kind === "go" || n.kind === "loop"
+        ? true
+        : n.kind === "if"
+          ? n.branches.some((b) => hasMoves(b.children))
+          : hasMoves(n.children),
+    );
+
+  for (const block of blocks) {
+    if (block.kind === "component" && !hasMoves(block.children)) continue;
+    const id = w.id("n");
+    ids.set(block, id);
+    const shape =
+      block.kind === "component"
+        ? `[["${mermaidLabel(block.name)}"]]`
+        : `["${mermaidLabel(block.name)}"]`;
+    w.line(`${id}${shape}`);
+    w.tag(id, block === startBlock ? "start" : block.kind);
   }
 
-  let linkIndex = 0;
-  const linkStyles: string[] = [];
-  const loopIds: string[] = [];
-  const paint = (color: string) => {
-    linkStyles.push(`  linkStyle ${linkIndex} stroke:${color},stroke-width:1.7px`);
-    linkIndex += 1;
+  const seen = new Set<string>();
+  const walk = (from: Block, nodes: Node[], labels: string[], color: string) => {
+    const fromId = ids.get(from)!;
+    for (const node of nodes) {
+      if (node.kind === "go") {
+        const target = findBlock(blocks, node.to);
+        const toId = target && ids.get(target);
+        const key = `${fromId}>${toId}>${labels.join()}`;
+        if (!toId || seen.has(key)) continue;
+        seen.add(key);
+        w.edge(fromId, toId, { label: labels.join(" · ") || undefined, color });
+      } else if (node.kind === "loop") {
+        const target = findBlock(blocks, node.to);
+        const toId = target && ids.get(target);
+        if (!toId) continue;
+        const loopId = w.id("l");
+        w.line(`${loopId}(["${mermaidLabel(`Loop ${node.action}`)}"])`);
+        w.tag(loopId, "loop");
+        w.edge(fromId, loopId, { label: labels.join(" · ") || undefined, color: COLORS.loop });
+        w.edge(loopId, toId, { label: `until ${node.until}`, color: "#8fbf9f" });
+      } else if (node.kind === "if") {
+        node.branches.forEach((b) =>
+          walk(from, b.children, [...labels, b.cond ?? "else"], COLORS.if),
+        );
+      } else if (node.kind === "on") {
+        walk(from, node.children, [...labels, node.event], COLORS.on);
+      } else if (node.kind === "show") {
+        const ref = findBlock(blocks, node.name);
+        if (ref?.kind === "component" && ids.has(ref) && !used.has(ref)) {
+          used.add(ref);
+          w.edge(fromId, ids.get(ref)!, { style: "-.->", color: "#b3a6e0" });
+        }
+        walk(from, node.children, labels, color);
+      } else {
+        walk(from, node.children, labels, color);
+      }
+    }
+  };
+  for (const block of blocks) if (ids.has(block)) walk(block, block.children, [], COLORS.go);
+  return w.finish(journey.title);
+}
+
+/** Storyboard: each screen drawn as a box holding its layout, with interactions wired between them. */
+function storyMermaid(journey: Journey): string {
+  const { blocks } = journey;
+  const w = new Writer();
+  w.out.push("flowchart TD");
+  const targets = new Map<Block, string>();
+  const startBlock = blocks.find((b) => b.kind === "screen");
+
+  // Every block gets a header node so arrows always land on a real node,
+  // which keeps Mermaid's cluster layout stable.
+  for (const block of blocks) targets.set(block, w.id("h"));
+
+  const target = (name: string) => {
+    const b = findBlock(blocks, name);
+    return b ? targets.get(b) : undefined;
   };
 
-  for (const edge of edges) {
-    const from = ids.get(edge.from);
-    const to = ids.get(edge.to);
-    if (!from || !to) continue;
-    if (edge.kind === "go") {
-      out.push(`  ${from} --> ${to}`);
-      paint("#e4a04a");
-    } else if (edge.kind === "if") {
-      out.push(`  ${from} -->|"${mermaidLabel(edge.condition)}"| ${to}`);
-      paint("#e7c27a");
-    } else {
-      const loopId = `l${loopIds.length}`;
-      loopIds.push(loopId);
-      out.push(`  ${loopId}["${mermaidLabel(`Loop ${edge.action}`)}"]`);
-      out.push(`  ${from} --> ${loopId}`);
-      paint("#9db7d4");
-      out.push(`  ${loopId} -->|"${mermaidLabel(`until ${edge.until}`)}"| ${to}`);
-      paint("#8fbf9f");
+  // Returns the ids of nodes emitted at this level (first one is the entry).
+  const emit = (owner: Block, nodes: Node[], depth: number): string[] => {
+    const ids: string[] = [];
+    for (const node of nodes) {
+      if (node.kind === "show") {
+        const ref = findBlock(blocks, node.name);
+        if (node.children.length) {
+          const id = w.id("g");
+          w.line(`subgraph ${id}["${mermaidLabel(node.name)}"]`, depth);
+          w.line("direction TB", depth + 1);
+          chain(emit(owner, node.children, depth + 1), depth + 1);
+          w.line("end", depth);
+          w.tag(id, "show");
+          ids.push(id);
+        } else {
+          const id = w.id("s");
+          w.line(`${id}["${mermaidLabel(node.name)}"]`, depth);
+          w.tag(id, ref?.kind === "component" ? "ref" : "show");
+          if (ref?.kind === "component" && ref !== owner)
+            w.later.push([id, targets.get(ref)!, { style: "-.->", color: "#b3a6e0" }]);
+          ids.push(id);
+        }
+      } else if (node.kind === "each") {
+        const id = w.id("e");
+        if (node.children.length) {
+          w.line(`subgraph ${id}["${mermaidLabel(`For each ${node.item}`)}"]`, depth);
+          w.line("direction TB", depth + 1);
+          chain(emit(owner, node.children, depth + 1), depth + 1);
+          w.line("end", depth);
+          w.line(`style ${id} stroke-dasharray:5 4`, depth);
+        } else {
+          w.line(
+            `${id}@{ shape: procs, label: "${mermaidLabel(`For each ${node.item}`)}" }`,
+            depth,
+          );
+          w.tag(id, "show");
+        }
+        ids.push(id);
+      } else if (node.kind === "if") {
+        const id = w.id("c");
+        w.line(`${id}{"${mermaidLabel(node.branches[0].cond ?? "")}?"}`, depth);
+        w.tag(id, "cond");
+        ids.push(id);
+        node.branches.forEach((branch, i) => {
+          const label = i === 0 ? "yes" : branch.cond ? `else if ${branch.cond}` : "else";
+          const inner = emit(owner, branch.children, depth);
+          chain(inner, depth);
+          if (inner[0]) w.edge(id, inner[0], { label, color: COLORS.if });
+        });
+      } else if (node.kind === "on") {
+        const id = w.id("o");
+        w.line(`${id}(["${mermaidLabel(`on ${node.event}`)}"])`, depth);
+        w.tag(id, "on");
+        ids.push(id);
+        const rest = node.children.filter((child) => child.kind !== "go");
+        for (const child of node.children) {
+          if (child.kind !== "go") continue;
+          const to = target(child.to);
+          if (to && to !== targets.get(owner)) w.later.push([id, to, { color: COLORS.on }]);
+        }
+        const inner = emit(owner, rest, depth);
+        chain(inner, depth);
+        if (inner[0]) w.edge(id, inner[0], { color: COLORS.on });
+      } else if (node.kind === "go") {
+        const id = w.id("t");
+        w.line(`${id}(["${mermaidLabel(`go to ${node.to}`)}"])`, depth);
+        w.tag(id, "go");
+        const to = target(node.to);
+        if (to && to !== targets.get(owner)) w.later.push([id, to, { color: COLORS.go }]);
+        ids.push(id);
+      } else {
+        const id = w.id("l");
+        w.line(`${id}(["${mermaidLabel(`Loop ${node.action} until ${node.until}`)}"])`, depth);
+        w.tag(id, "loop");
+        const to = target(node.to);
+        if (to && to !== targets.get(owner)) w.later.push([id, to, { color: "#8fbf9f" }]);
+        ids.push(id);
+      }
     }
+    return ids;
+  };
+
+  // Invisible links stack siblings top to bottom.
+  const chain = (ids: string[], depth: number) => {
+    for (let i = 1; i < ids.length; i += 1) w.edge(ids[i - 1], ids[i], { style: "~~~" }, depth);
+  };
+
+  for (const block of blocks) {
+    const head = targets.get(block)!;
+    const cls = block === startBlock ? "start" : block.kind;
+    if (!block.children.length) {
+      w.line(`${head}["${mermaidLabel(block.name)}"]`);
+      w.tag(head, cls);
+      continue;
+    }
+    const id = w.id("b");
+    w.line(`subgraph ${id}[" "]`);
+    w.line("direction TB", 2);
+    w.line(`${head}["${mermaidLabel(block.name)}"]`, 2);
+    w.tag(head, cls);
+    chain([head, ...emit(block, block.children, 2)], 2);
+    w.line("end");
+    w.line(`style ${id} fill:#13120e,stroke:${block.kind === "component" ? "#b3a6e0" : "#342f26"}`);
   }
-
-  out.push("  classDef screen fill:#211e17,stroke:#e4a04a,color:#f4efe6,stroke-width:1.5px");
-  out.push("  classDef start fill:#e4a04a,stroke:#c4842e,color:#1a1208,stroke-width:1.5px");
-  out.push("  classDef loop fill:#17211c,stroke:#8fbf9f,color:#f4efe6,stroke-width:1.5px");
-  out.push("  classDef ghost fill:#14130f,stroke:#a39888,color:#d9d0c2,stroke-dasharray:5 4,stroke-width:1.5px");
-
-  if (start && ids.get(start)) out.push(`  class ${ids.get(start)} start`);
-  const explicit = screens
-    .filter((screen) => !screen.implicit && screen.name !== start)
-    .map((screen) => ids.get(screen.name))
-    .filter(Boolean);
-  const ghosts = screens
-    .filter((screen) => screen.implicit && screen.name !== start)
-    .map((screen) => ids.get(screen.name))
-    .filter(Boolean);
-  if (explicit.length) out.push(`  class ${explicit.join(",")} screen`);
-  if (ghosts.length) out.push(`  class ${ghosts.join(",")} ghost`);
-  if (loopIds.length) out.push(`  class ${loopIds.join(",")} loop`);
-  out.push(...linkStyles);
-  return out.join("\n");
+  return w.finish(journey.title);
 }
 
-export function parseJourney(source: string): JourneyModel {
-  const rawLines = source.split(/\r\n|\n|\r/);
-  const lines = rawLines.map((line) => classifyLine(line));
-  const issues: JourneyIssue[] = [];
-  const bad = new Set<number>();
-  const screens: JourneyScreen[] = [];
-  const edges: JourneyEdge[] = [];
-  let title: string | null = null;
-  let current: string | null = null;
-
-  const touch = (name: string, explicit: boolean) => {
-    const found = screens.find((screen) => screen.name === name);
-    if (!found) {
-      screens.push({ name, implicit: !explicit });
-      return;
-    }
-    if (explicit) found.implicit = false;
-  };
-
-  lines.forEach((line, index) => {
-    const number = index + 1;
-    if (line.error) {
-      issues.push({ line: number, message: `Line ${number}: ${line.error}` });
-      bad.add(number);
-    }
-    if (line.kind === "title" && line.title && !line.error) title = line.title;
-    if (line.kind === "screen" && line.screen && !line.error) {
-      current = line.screen;
-      touch(line.screen, true);
-      return;
-    }
-    if (line.error) return;
-    if (line.kind !== "go" && line.kind !== "if" && line.kind !== "loop") return;
-    if (!current) {
-      issues.push({ line: number, message: `Line ${number}: Add a 'Screen:' line before this step` });
-      bad.add(number);
-      return;
-    }
-    if (line.kind === "go" && line.dest) {
-      touch(line.dest, false);
-      edges.push({ kind: "go", from: current, to: line.dest, line: number });
-    } else if (line.kind === "if" && line.dest && line.condition) {
-      touch(line.dest, false);
-      edges.push({ kind: "if", from: current, to: line.dest, condition: line.condition, line: number });
-    } else if (line.kind === "loop" && line.dest && line.action && line.until) {
-      touch(line.dest, false);
-      edges.push({
-        kind: "loop",
-        from: current,
-        to: line.dest,
-        action: line.action,
-        until: line.until,
-        line: number,
-      });
-    }
-  });
-
-  return {
-    title,
-    screens,
-    edges,
-    issues,
-    badLines: [...bad],
-    lines,
-    mermaid: toMermaid(title, screens, edges),
-  };
+export function toMermaid(journey: Journey, view: ViewKind): string {
+  if (!journey.blocks.length) return "";
+  return view === "flow" ? flowMermaid(journey) : storyMermaid(journey);
 }
+
+// ---------------------------------------------------------------- editing
 
 export function insertSnippet(
   source: string,
@@ -491,10 +820,11 @@ export function insertSnippet(
   const lineEnd = newlineAt === -1 ? source.length : newlineAt;
   const before = source.slice(lineStart, start);
   const after = source.slice(end, lineEnd);
-  const prefix = before.trim() ? "\n" : "";
-  const suffix = after.trim() ? "\n" : "";
+  // New lines keep the current line's indent, so snippets land in the same block.
+  const indent = before.match(/^[ \t]*/)![0];
+  const prefix = before.trim() ? `\n${indent}` : "";
+  const suffix = after.trim() ? `\n${indent}` : "";
   const piece = prefix + snippet + suffix;
   const next = source.slice(0, start) + piece + source.slice(end);
-  const cursor = start + prefix.length + cursorInSnippet;
-  return { next, cursor };
+  return { next, cursor: start + prefix.length + cursorInSnippet };
 }
