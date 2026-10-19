@@ -66,7 +66,12 @@
   position: relative;
   min-height: 18rem;
   padding: var(--pad-y) 0;
-  background: var(--color-surface);
+  background: color-mix(in oklab, var(--color-surface) 55%, transparent);
+  border: 1px solid var(--color-border);
+}
+
+.editor-stack:focus-within {
+  border-color: var(--color-accent);
 }
 
 .editor-lines {
@@ -144,16 +149,54 @@
   background-size: 18px 18px;
 }
 
-.mermaid-host {
-  display: flex;
-  justify-content: center;
-  overflow-x: auto;
-  max-width: 100%;
+.map-stage {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.map-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .mermaid-host svg {
-  height: auto;
-  max-width: 100%;
+  display: block;
+  max-width: none;
+}
+
+/* The editor floats over the map: translucent + blurred so the diagram reads through. */
+.editor-layer {
+  z-index: 20;
+  background: color-mix(in oklab, var(--color-bg) 62%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.editor-layer.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.editor-row {
+  text-shadow: 0 1px 2px var(--color-bg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .editor-layer {
+    transition: opacity 160ms ease, visibility 0s linear 160ms;
+  }
+
+  .editor-layer.is-open {
+    transition: opacity 160ms ease, visibility 0s;
+  }
 }
 
 .tap {
