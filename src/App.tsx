@@ -431,7 +431,7 @@ export function App() {
 
           {helpOpen ? <HowTo onClose={() => setHelpOpen(false)} /> : null}
 
-          <div className="flex gap-2 overflow-x-auto pb-1">
+          <div className="flex flex-wrap gap-2">
             {EXAMPLES.map((example) => (
               <button
                 key={example.id}
@@ -465,7 +465,7 @@ export function App() {
             ) : null}
           </div>
 
-          <div className="flex gap-2 overflow-x-auto">
+          <div className="flex flex-wrap gap-2">
             {(Object.keys(SNIPPETS) as SnippetId[]).map((id) => (
               <button
                 key={id}

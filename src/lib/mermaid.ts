@@ -16,7 +16,8 @@ function load(): Promise<Mermaid> {
         flowchart: {
           curve: "basis",
           htmlLabels: true,
-          wrappingWidth: 180,
+          // Labels arrive pre-wrapped; this only stops Mermaid wrapping them again.
+          wrappingWidth: 400,
           padding: 14,
           nodeSpacing: 32,
           rankSpacing: 46,
@@ -48,8 +49,17 @@ function load(): Promise<Mermaid> {
   return ready;
 }
 
+// Mermaid sizes boxes by measuring text, so the real font must be loaded first
+// or the text overflows (and gets clipped) once it swaps in.
+const fonts = () =>
+  Promise.all(
+    ["400 16px Outfit", "600 16px Outfit", "700 18px Outfit"].map((font) =>
+      document.fonts?.load(font).catch(() => undefined),
+    ),
+  );
+
 export async function renderMermaid(code: string): Promise<string> {
-  const mermaid = await load();
+  const [mermaid] = await Promise.all([load(), fonts()]);
   const id = `plainpath${++seq}`;
   try {
     const { svg } = await mermaid.render(id, code);

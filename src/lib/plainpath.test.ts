@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EXAMPLES, classifyLine, insertSnippet, parse, toMermaid, type Node } from "./plainpath.ts";
+import {
+  EXAMPLES,
+  classifyLine,
+  insertSnippet,
+  mermaidLabel,
+  parse,
+  toMermaid,
+  wrapText,
+  type Node,
+} from "./plainpath.ts";
 
 const screen = (source: string, name: string) => parse(source).blocks.find((b) => b.name === name)!;
 
@@ -195,7 +204,7 @@ test("steps are numbered and next step resolves", () => {
   assert.equal(on.event, "the analyser is done");
   assert.deepEqual(on.children[0], { kind: "go", to: "the next step", line: 3, step: 2 });
   assert.equal(journey.blocks.length, 1, "step targets are not ghost screens");
-  assert.match(toMermaid(journey, "flow"), /Step 1 of 3: Weigh beans X/);
+  assert.match(toMermaid(journey, "flow"), /Step 1 of 3<br>Weigh beans X/);
   assert.match(toMermaid(journey, "story"), /subgraph \w+\["Step 2 of 3"\]/);
 });
 
@@ -226,4 +235,19 @@ test("action words: last one wins, bare open/show stay in the sentence", () => {
   });
   assert.deepEqual(classifyLine("Open Settings").stmt, { t: "go", to: "Settings" });
   assert.match(classifyLine("User taps Buy").error!, /When they tap/);
+});
+
+test("long labels wrap instead of being cut", () => {
+  const long = "Measure 200 g of beans X into the analysis bowl and wait for the analyser";
+  const lines = wrapText(long);
+  assert.equal(lines.join(" "), long);
+  assert.ok(lines.every((line) => line.length <= 26));
+  assert.equal(mermaidLabel(long), lines.join("<br>"));
+  assert.deepEqual(wrapText("https://example.com/a/very/long/path/that/never/ends"), [
+    "https://example.com/a/very",
+    "/long/path/that/never/ends",
+  ]);
+  const mermaid = toMermaid(parse(`Title: ${long}\nScreen: ${long}\n  Text: ${long}\n`), "story");
+  assert.match(mermaid, /title: Measure 200 g .* analyser\n/, "the diagram title is not wrapped");
+  assert.ok(!mermaid.includes("…"));
 });

@@ -646,16 +646,48 @@ export function parse(source: string): Journey {
 
 // --------------------------------------------------------------- mermaid
 
-export function mermaidLabel(input: string): string {
-  const clean = input
+const WRAP = 26;
+
+function cleanLabel(input: string): string {
+  return input
     .replace(/[\r\n\t]+/g, " ")
     .replace(/&/g, "and")
     .replace(/[<>[\]{}|#"`]/g, "")
     .replace(/\\/g, "/")
     .replace(/\s+/g, " ")
     .trim();
-  if (!clean) return " ";
-  return clean.length > 72 ? `${clean.slice(0, 69)}…` : clean;
+}
+
+// Greedy word wrap. Words much longer than a line (URLs, IDs) are split.
+export function wrapText(text: string, width = WRAP): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (let word of text.split(" ")) {
+    while (word.length > width + 6) {
+      if (line) lines.push(line);
+      lines.push(word.slice(0, width));
+      line = "";
+      word = word.slice(width);
+    }
+    if (!line) line = word;
+    else if (line.length + 1 + word.length <= width) line += ` ${word}`;
+    else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/**
+ * Safe Mermaid label text, wrapped with explicit line breaks. Breaking lines
+ * ourselves keeps boxes sized right in every browser instead of relying on
+ * Mermaid's own measuring, which clips text when the font loads late.
+ */
+export function mermaidLabel(input: string, width = WRAP): string {
+  const clean = cleanLabel(input);
+  return clean ? wrapText(clean, width).join("<br>") : " ";
 }
 
 const COLORS = {
@@ -677,6 +709,7 @@ const CLASS_DEFS = [
   "classDef ghost fill:#14130f,stroke:#a39888,color:#d9d0c2,stroke-dasharray:5 4,stroke-width:1.5px",
   "classDef show fill:#1c1a15,stroke:#5a5244,color:#f4efe6",
   "classDef ref fill:#1b1a22,stroke:#b3a6e0,color:#f4efe6",
+  "classDef caption fill:transparent,stroke:transparent,color:#d9d0c2",
   "classDef text fill:transparent,stroke:transparent,color:#d9d0c2,font-style:italic",
   "classDef headline fill:transparent,stroke:transparent,color:#f4efe6,font-weight:bold,font-size:18px",
   "classDef button fill:#16292a,stroke:#7fc4c9,color:#f4efe6,stroke-width:1.5px",
@@ -723,7 +756,7 @@ class Writer {
   }
   finish(title: string | null) {
     for (const [from, to, opts] of this.later) this.edge(from, to, opts);
-    const head = title ? ["---", `title: ${mermaidLabel(title).replace(/:/g, " ")}`, "---"] : [];
+    const head = title ? ["---", `title: ${cleanLabel(title).replace(/:/g, " ")}`, "---"] : [];
     const classLines = [...this.classes].map(([cls, ids]) => `  class ${ids.join(",")} ${cls}`);
     return [
       ...head,
@@ -742,7 +775,8 @@ function findBlock(blocks: Block[], name: string) {
   return blocks.find((b) => b.name.toLowerCase() === key);
 }
 
-const stepLabel = (step: StepNode) => `Step ${step.number} of ${step.total}: ${step.title}`;
+const stepLabel = (step: StepNode) =>
+  `Step ${step.number} of ${step.total}<br>${mermaidLabel(step.title)}`;
 
 function blockShape(block: Block) {
   if (block.kind === "component") return `[[${q(block.name)}]]`;
@@ -772,7 +806,7 @@ function flowMermaid(journey: Journey): string {
     block.steps.forEach((step, i) => {
       const stepId = w.id("p");
       stepIds.set(step, stepId);
-      w.node(stepId, `(${q(stepLabel(step))})`, "step");
+      w.node(stepId, `("${stepLabel(step)}")`, "step");
       if (i === 0) w.edge(id, stepId, { style: "-.->", color: COLORS.step });
     });
   }
@@ -878,6 +912,12 @@ function storyMermaid(journey: Journey): string {
     depth: number,
     head?: [string, string, string],
   ) => {
+    // Mermaid leaves room for one line of subgraph title only, so a title that
+    // wraps is drawn as a caption node inside the group instead.
+    if (!head && mermaidLabel(label).includes("<br>")) {
+      head = [w.id("k"), `[${q(label)}]`, "caption"];
+      label = " ";
+    }
     w.line(`subgraph ${id}[${q(label)}]`, depth);
     w.line("direction TB", depth + 1);
     if (head) w.node(head[0], head[1], head[2], depth + 1);
