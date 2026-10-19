@@ -176,6 +176,11 @@
   color: var(--color-step);
   font-weight: 600;
 }
+.tok-media {
+  color: var(--color-show);
+  font-weight: 600;
+  font-style: italic;
+}
 .tok-text {
   color: var(--color-fg);
   font-weight: 600;

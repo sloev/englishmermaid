@@ -12,6 +12,7 @@ export type TokenKind =
   | "each"
   | "button"
   | "text"
+  | "media"
   | "step"
   | "name"
   | "cond"
@@ -22,6 +23,8 @@ export type Token = { text: string; kind: TokenKind };
 type Tail = { kind: "go"; to: string } | { kind: "show"; names: string[] };
 
 export type BlockKind = "screen" | "modal" | "component";
+
+export type MediaSize = "wide" | "square" | "tall";
 
 type Stmt =
   | { t: "blank" }
@@ -38,6 +41,7 @@ type Stmt =
   | { t: "option"; label: string; text: string; tail?: Tail }
   | { t: "step"; title: string }
   | { t: "text"; text: string; heading: boolean }
+  | { t: "media"; caption: string; video: boolean; size: MediaSize }
   | { t: "go"; to: string }
   | { t: "show"; names: string[] }
   | { t: "loop"; action: string; until: string; to: string }
@@ -60,6 +64,7 @@ export type StepNode = {
 export type Node =
   | { kind: "show"; name: string; line: number; children: Node[] }
   | { kind: "text"; text: string; heading: boolean; line: number }
+  | { kind: "media"; caption: string; video: boolean; size: MediaSize; line: number }
   | { kind: "button"; label: string; line: number; children: Node[] }
   | { kind: "choose"; prompt: string; line: number; children: Node[] }
   | { kind: "option"; label: string; text: string; line: number; children: Node[] }
@@ -99,7 +104,7 @@ Screen: Library
   On tap + on Ethiopian Sunset open Coffee Type
 
 Component: Blend Card
-  Show Name, + Button
+  Show Blend Photo, Name, + Button
 
 Popup: Coffee Type
   Headline: Which kind of roast?
@@ -153,6 +158,7 @@ Screen: Payment
 const SIGNUP = `Title: Create account
 Screen: Landing
   Headline: Plan your week in a minute
+  Video: 30 second product tour
   Button Sign up goes to Sign Up
 
 Screen: Sign Up
@@ -187,6 +193,7 @@ export type SnippetId =
   | "popup"
   | "show"
   | "text"
+  | "image"
   | "button"
   | "choose"
   | "each"
@@ -204,6 +211,7 @@ export const SNIPPETS: Record<
   popup: { text: "Popup: ", cursor: 7, label: "Popup:", hint: "a modal", kind: "screen" },
   show: { text: "Show ", cursor: 5, label: "Show", hint: "a part", kind: "show" },
   text: { text: "Text: ", cursor: 6, label: "Text:", hint: "words", kind: "text" },
+  image: { text: "Image: ", cursor: 7, label: "Image:", hint: "a picture", kind: "media" },
   button: { text: "Button  goes to ", cursor: 7, label: "Button", hint: "", kind: "button" },
   choose: { text: "Choose :", cursor: 7, label: "Choose", hint: "a select", kind: "button" },
   each: { text: "For each  show ", cursor: 9, label: "For each", hint: "a list", kind: "each" },
@@ -222,6 +230,29 @@ const GO = String.raw`go(?:es)?\s+to|opens?|(?:advance|move|navigate|continue|ju
 const GO_START =
   /^(?:go(?:es)?\s+to|open|(?:advance|move|navigate|continue|jump|return)\s+to)(?=\s|$)/i;
 const BARE = /^opens?$|^show$/i;
+
+// "Image: hero photo", "Photo of the beans", "Video: how to roast (square)".
+const MEDIA_START =
+  /^(?:image|picture|photo|illustration|logo|thumbnail|avatar|banner|video|clip|media)(?:\s*:|\s+of\b|(?=\s*$))\s*/i;
+
+// Show parts named like pictures are drawn as pictures too: "Show Hero Image".
+const MEDIA_NAME = /\b(?:image|picture|photo|illustration|logo|thumbnail|avatar|video)s?$/i;
+
+// Avatars default to square; everything else to a landscape frame.
+const defaultSize = (name: string): MediaSize => (/avatars?\b/i.test(name) ? "square" : "wide");
+
+function mediaCaption(text: string, fallback: MediaSize): { caption: string; size: MediaSize } {
+  const sized = text.match(/\s*\((wide|square|tall|portrait|landscape)\)\s*$/i);
+  const word = sized?.[1].toLowerCase();
+  const size: MediaSize = !word
+    ? fallback
+    : word === "square"
+      ? "square"
+      : word === "tall" || word === "portrait"
+        ? "tall"
+        : "wide";
+  return { caption: unquote(sized ? text.slice(0, sized.index) : text), size };
+}
 
 // Index of the last whole-word, case-insensitive `kw` in `hay` (after `from`).
 function lastWord(hay: string, kw: string, from = 0): number {
@@ -377,6 +408,11 @@ export function classifyLine(raw: string): Line {
       keyed("step", m),
       title ? undefined : "Give the step a headline, like 'Step: Weigh the beans'",
     );
+  }
+
+  if ((m = word(MEDIA_START))) {
+    const { caption, size } = mediaCaption(body.slice(m.length), defaultSize(m));
+    return make({ t: "media", caption, video: /^video|^clip/i.test(m), size }, keyed("media", m));
   }
 
   if ((m = word(/^(?:text|headline|heading|label|message|says?)\b\s*:?/i))) {
@@ -602,6 +638,14 @@ export function parse(source: string): Journey {
       }
       case "text":
         return add({ kind: "text", text: stmt.text, heading: stmt.heading, line: number });
+      case "media":
+        return add({
+          kind: "media",
+          caption: stmt.caption,
+          video: stmt.video,
+          size: stmt.size,
+          line: number,
+        });
       case "go":
         return add({ kind: "go", to: stmt.to, line: number });
       case "loop":
@@ -799,6 +843,7 @@ const CLASS_DEFS = [
   "classDef show fill:#1c1a15,stroke:#5a5244,color:#f4efe6",
   "classDef ref fill:#1b1a22,stroke:#b3a6e0,color:#f4efe6",
   "classDef caption fill:transparent,stroke:transparent,color:#d9d0c2",
+  "classDef media fill:#1c1a15,stroke:#5a5244,color:#d9d0c2",
   "classDef text fill:transparent,stroke:transparent,color:#d9d0c2,font-style:italic",
   "classDef headline fill:transparent,stroke:transparent,color:#f4efe6,font-weight:bold,font-size:18px",
   "classDef button fill:#16292a,stroke:#7fc4c9,color:#f4efe6,stroke-width:1.5px",
@@ -856,6 +901,23 @@ class Writer {
       ...this.links,
     ].join("\n");
   }
+}
+
+const MEDIA_SIZES: Record<MediaSize, [number, number]> = {
+  wide: [176, 110],
+  square: [120, 120],
+  tall: [110, 160],
+};
+
+/** A wireframe-style picture: mountains and a sun, or a play button for video. */
+function placeholder(width: number, height: number, video: boolean): string {
+  const art = video
+    ? `<circle cx="${width / 2}" cy="${height / 2}" r="${Math.min(width, height) / 5}" fill="#4a4335"/>` +
+      `<path d="M${width / 2 - 6} ${height / 2 - 10}v20l16-10z" fill="#e4a04a"/>`
+    : `<circle cx="${width * 0.74}" cy="${height * 0.3}" r="${Math.min(width, height) / 10}" fill="#e4a04a"/>` +
+      `<path d="M0 ${height}L${width * 0.34} ${height * 0.45}L${width * 0.56} ${height * 0.8}L${width * 0.69} ${height * 0.6}L${width} ${height}Z" fill="#4a4335"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#26231c"/>${art}</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
 const q = (text: string) => `"${mermaidLabel(text)}"`;
@@ -1023,7 +1085,33 @@ function storyMermaid(journey: Journey): string {
   const emit = (owner: Block, nodes: Node[], depth: number): string[] => {
     const ids: string[] = [];
     for (const node of nodes) {
-      if (node.kind === "show") {
+      if (
+        node.kind === "media" ||
+        (node.kind === "show" &&
+          !node.children.length &&
+          MEDIA_NAME.test(node.name) &&
+          findBlock(blocks, node.name)?.kind !== "component")
+      ) {
+        const id = w.id("m");
+        const media =
+          node.kind === "media"
+            ? node
+            : {
+                caption: node.name,
+                video: /videos?$/i.test(node.name),
+                size: defaultSize(node.name),
+              };
+        const [width, height] = MEDIA_SIZES[media.size];
+        const url = placeholder(width, height, media.video);
+        const label = media.caption ? q(media.caption) : '" "';
+        w.node(
+          id,
+          `@{ img: "${url}", label: ${label}, pos: "b", w: ${width}, h: ${height}, constraint: "on" }`,
+          "media",
+          depth,
+        );
+        ids.push(id);
+      } else if (node.kind === "show") {
         const ref = findBlock(blocks, node.name);
         const id = w.id("s");
         if (node.children.length) {

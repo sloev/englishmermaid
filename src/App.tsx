@@ -707,6 +707,10 @@ const HELP: { code: string; text: string }[] = [
     text: "Parts of the layout. Indent under a Show to nest parts inside it.",
   },
   { code: "Text: Free shipping|Headline: Pick a blend", text: "Words on the screen." },
+  {
+    code: "Image: hero photo of the beans|Video: how to roast (square)",
+    text: "A picture or video placeholder. Add (square) or (tall) for the shape. 'Show Hero Image' or 'Show Logo' are drawn as pictures too.",
+  },
   { code: "Button Datakaffe goes to Roasting", text: "A button and where it leads." },
   {
     code: "Choose roast flow:",

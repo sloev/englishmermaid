@@ -296,3 +296,43 @@ test("unindented options get a hint", () => {
   const journey = parse("Screen: A\nChoose roast flow:\nDataoriented: this and that\n");
   assert.match(journey.issues.find((i) => i.line === 3)!.message, /Indent the options/);
 });
+
+test("media placeholders", () => {
+  assert.deepEqual(classifyLine("  Image: hero photo of the beans").stmt, {
+    t: "media",
+    caption: "hero photo of the beans",
+    video: false,
+    size: "wide",
+  });
+  assert.deepEqual(classifyLine("Photo of the roaster (square)").stmt, {
+    t: "media",
+    caption: "the roaster",
+    video: false,
+    size: "square",
+  });
+  assert.deepEqual(classifyLine("Video: how to roast (portrait)").stmt, {
+    t: "media",
+    caption: "how to roast",
+    video: true,
+    size: "tall",
+  });
+  assert.equal(classifyLine("Logo").stmt.t, "media");
+  const journey = parse(
+    "Screen: Home\n  Image: hero\n  Show Product Photo, Title\n  Video: tour\n",
+  );
+  assert.deepEqual(journey.issues, []);
+  const story = toMermaid(journey, "story");
+  assert.equal(
+    story.match(/@\{ img: "data:image\/svg\+xml,/g)?.length,
+    3,
+    "image, photo part and video",
+  );
+  assert.match(story, /label: "Product Photo"/);
+  assert.match(story, /\["Title"\]/, "ordinary parts stay boxes");
+  assert.ok(!toMermaid(journey, "flow").includes("img:"), "flow view leaves layout out");
+});
+
+test("avatars default to square", () => {
+  assert.equal((classifyLine("Avatar: Maria").stmt as { size: string }).size, "square");
+  assert.match(toMermaid(parse("Screen: A\n  Show User Avatar\n"), "story"), /w: 120, h: 120/);
+});
