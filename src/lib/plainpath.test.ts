@@ -291,3 +291,8 @@ test("choose: options are read in context, with optional descriptions and action
 test("choose needs options", () => {
   assert.match(parse("Screen: A\n  Choose flavour\n").issues[0].message, /options/);
 });
+
+test("unindented options get a hint", () => {
+  const journey = parse("Screen: A\nChoose roast flow:\nDataoriented: this and that\n");
+  assert.match(journey.issues.find((i) => i.line === 3)!.message, /Indent the options/);
+});

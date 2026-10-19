@@ -560,6 +560,13 @@ export function parse(source: string): Journey {
       line.error = message;
       issues.push({ line: number, message });
     };
+    if (line.stmt.t === "unknown" && block) {
+      const siblings = stack[stack.length - 1].children;
+      // An option written at the same indent as its Choose.
+      if (siblings[siblings.length - 1]?.kind === "choose") {
+        line.error = "Indent the options under 'Choose …' by two spaces (or Tab)";
+      }
+    }
     if (line.error) return issues.push({ line: number, message: line.error });
     const { stmt } = line;
     if (stmt.t === "blank" || stmt.t === "note") return;
