@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import {
   BLANK,
+  classifyLine,
   EXAMPLES,
   insertSnippet,
   parse,
@@ -628,11 +629,12 @@ function onEditorKey(
   let insert: string | null = null;
   if (event.key === "Enter" && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
     const indent = line.match(/^[ \t]*/)![0];
+    // One level deeper after a line that opens a block, unless it already ends in an action.
     const opens =
-      /^\s*(screen:|page:|component:|show\b|for each\b|if\b|else\b|otherwise\b|on\b|when\b)/i.test(
+      /^\s*(\w+(?:-up)?:|show\b|for each\b|if\b|else\b|otherwise\b|on\b|when\b|after\b|once\b|step\b|button\b)/i.test(
         line,
-      );
-    const inline = /\s(go\s+to|show)\s+\S/i.test(line.replace(/^\s*show\s/i, " "));
+      ) && !/^\s*(title|text|headline|heading|label|message|note):/i.test(line);
+    const inline = /\s(go(es)?\s+to|opens?|show)\s+\S/i.test(line.replace(/^\s*show\s/i, " "));
     insert = `\n${indent}${opens && !inline ? "  " : ""}`;
   } else if (event.key === "Tab" && !event.shiftKey && start === end) {
     insert = "  ";
@@ -694,73 +696,41 @@ function MapButton({
   );
 }
 
-const HELP: { code: [string, string][]; text: string }[] = [
+// Example lines are coloured by the real parser; "|" separates several on one row.
+const HELP: { code: string; text: string }[] = [
   {
-    code: [
-      ["Screen: ", "screen"],
-      ["Cart", "name"],
-    ],
-    text: "A page or a step. Everything indented under it belongs to it.",
+    code: "Screen: Cart|Popup: Coffee Type",
+    text: "A page, or a modal that opens on top. Indented lines belong to it.",
   },
   {
-    code: [
-      ["Show ", "show"],
-      ["Header, Search", "name"],
-    ],
+    code: "Show Header, Search",
     text: "Parts of the layout. Indent under a Show to nest parts inside it.",
   },
+  { code: "Text: Free shipping|Headline: Pick a blend", text: "Words on the screen." },
+  { code: "Button Datakaffe goes to Roasting", text: "A button and where it leads." },
   {
-    code: [
-      ["For each ", "each"],
-      ["product in products ", "name"],
-      ["show ", "show"],
-      ["Product Card", "name"],
-    ],
-    text: "A repeated part, like a list. Or put the Show lines indented below.",
+    code: "For each blend in my library show Blend Card",
+    text: "A list. Or put the Show lines indented below.",
   },
   {
-    code: [
-      ["If ", "if"],
-      ["cart is empty", "cond"],
-      [" / ", "plain"],
-      ["Else if ", "if"],
-      ["… / ", "cond"],
-      ["Else", "if"],
-    ],
+    code: "If cart is empty|Else if …|Else",
     text: "Choices. Indent what happens below each one, or end the line with 'go to …' or 'show …'.",
   },
   {
-    code: [
-      ["On ", "on"],
-      ["tap Buy ", "cond"],
-      ["go to ", "go"],
-      ["Cart", "name"],
-    ],
-    text: "An interaction. Can hold If / Else lines indented below it.",
+    code: "When they tap Buy go to Cart",
+    text: "An event: a tap, a timer, a device finishing. Also On, After. Can hold If / Else below it.",
   },
   {
-    code: [
-      ["Go to ", "go"],
-      ["Home", "name"],
-    ],
-    text: "A plain link to another screen.",
+    code: "Step: Weigh 200 g of beans",
+    text: "Numbered steps inside a screen (Step 1 of n). Move on with 'go to next step' or 'go to step 3'.",
   },
   {
-    code: [
-      ["Component: ", "screen"],
-      ["Product Card", "name"],
-    ],
-    text: "A reusable part. Any 'Show Product Card' links to it.",
+    code: "Go to Home|Open Coffee Type",
+    text: "A plain link. 'goes to', 'opens', 'you are taken to' work too.",
   },
+  { code: "Component: Blend Card", text: "A reusable part. Any 'Show Blend Card' links to it." },
   {
-    code: [
-      ["Loop ", "loop"],
-      ["bank checks ", "cond"],
-      ["until ", "loop"],
-      ["it answers ", "cond"],
-      ["then go to ", "go"],
-      ["Receipt", "name"],
-    ],
+    code: "Loop bank checks until it answers then go to Receipt",
     text: "Wait or repeat until something happens, then move on.",
   },
 ];
@@ -788,9 +758,14 @@ function HowTo({ onClose }: { onClose: () => void }) {
         {HELP.map((item) => (
           <li key={item.text}>
             <span className="font-mono">
-              {item.code.map(([text, kind]) => (
-                <span key={text} className={`tok-${kind}`}>
-                  {text}
+              {item.code.split("|").map((example, i) => (
+                <span key={example}>
+                  {i > 0 ? <span className="text-muted"> / </span> : null}
+                  {classifyLine(example).tokens.map((token, j) => (
+                    <span key={j} className={`tok-${token.kind}`}>
+                      {token.text}
+                    </span>
+                  ))}
                 </span>
               ))}
             </span>

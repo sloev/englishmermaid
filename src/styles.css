@@ -21,6 +21,8 @@
   --color-show: #c9d3a4;
   --color-on: #d99bc4;
   --color-each: #b3a6e0;
+  --color-button: #7fc4c9;
+  --color-step: #8fbf9f;
   --color-danger: #e07a6a;
   --color-danger-soft: #3a2420;
   --color-border: #342f26;
@@ -164,6 +166,18 @@
 }
 .tok-each {
   color: var(--color-each);
+  font-weight: 600;
+}
+.tok-button {
+  color: var(--color-button);
+  font-weight: 600;
+}
+.tok-step {
+  color: var(--color-step);
+  font-weight: 600;
+}
+.tok-text {
+  color: var(--color-fg);
   font-weight: 600;
 }
 .tok-name {

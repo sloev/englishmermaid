@@ -131,3 +131,99 @@ test("insertSnippet keeps the current indent", () => {
   assert.equal(next, "Screen: A\n  Show X\n  Go to ");
   assert.equal(cursor, next.length);
 });
+
+test("buttons, text, headlines and popups", () => {
+  const src = `Screen: Library
+  Text: rooost.party
+  On tap + on Ethiopian Sunset open Coffee Type
+Popup: Coffee Type
+  Headline: "Datakaffe or almindelig kaffe?"
+  Button Datakaffe goes to Roasting
+  Button: Almindelig kaffe
+`;
+  const journey = parse(src);
+  assert.deepEqual(journey.issues, []);
+  const [library, popup] = journey.blocks;
+  assert.equal(popup.kind, "modal");
+  assert.deepEqual(library.children[0], {
+    kind: "text",
+    text: "rooost.party",
+    heading: false,
+    line: 2,
+  });
+  const on = library.children[1] as Extract<Node, { kind: "on" }>;
+  assert.equal(on.event, "tap + on Ethiopian Sunset");
+  assert.deepEqual(on.children[0], { kind: "go", to: "Coffee Type", line: 3 });
+  assert.deepEqual(popup.children[0], {
+    kind: "text",
+    text: "Datakaffe or almindelig kaffe?",
+    heading: true,
+    line: 5,
+  });
+  const button = popup.children[1] as Extract<Node, { kind: "button" }>;
+  assert.equal(button.label, "Datakaffe");
+  assert.deepEqual(button.children, [{ kind: "go", to: "Roasting", line: 6 }]);
+  assert.deepEqual(popup.children[2], {
+    kind: "button",
+    label: "Almindelig kaffe",
+    line: 7,
+    children: [],
+  });
+  assert.match(toMermaid(journey, "flow"), /-->\|"tap Datakaffe"\|/);
+});
+
+test("steps are numbered and next step resolves", () => {
+  const src = `Screen: Roast
+  Step: Weigh beans X
+    When the analyser is done you are advanced to the next step
+  Step 2 - "Weigh beans Y."
+    After the analysis go to step 3
+  Step: Roast
+`;
+  const journey = parse(src);
+  assert.deepEqual(journey.issues, []);
+  const [roast] = journey.blocks;
+  assert.deepEqual(
+    roast.steps.map((s) => [s.number, s.total, s.title]),
+    [
+      [1, 3, "Weigh beans X"],
+      [2, 3, "Weigh beans Y"],
+      [3, 3, "Roast"],
+    ],
+  );
+  const on = roast.steps[0].children[0] as Extract<Node, { kind: "on" }>;
+  assert.equal(on.event, "the analyser is done");
+  assert.deepEqual(on.children[0], { kind: "go", to: "the next step", line: 3, step: 2 });
+  assert.equal(journey.blocks.length, 1, "step targets are not ghost screens");
+  assert.match(toMermaid(journey, "flow"), /Step 1 of 3: Weigh beans X/);
+  assert.match(toMermaid(journey, "story"), /subgraph \w+\["Step 2 of 3"\]/);
+});
+
+test("step targets are checked", () => {
+  assert.match(
+    parse("Screen: A\n  Step: one\n    Go to next step\n").issues[0].message,
+    /no step 2/,
+  );
+  assert.match(parse("Screen: A\n  Go to next step\n").issues[0].message, /inside a Step/);
+});
+
+test("action words: last one wins, bare open/show stay in the sentence", () => {
+  const menu = classifyLine("If menu is open show Help").stmt;
+  assert.deepEqual(menu, {
+    t: "if",
+    cond: "menu is open",
+    tail: { kind: "show", names: ["Help"] },
+  });
+  assert.deepEqual(classifyLine("When drawer is open").stmt, {
+    t: "on",
+    event: "drawer is open",
+    tail: undefined,
+  });
+  assert.deepEqual(classifyLine("Button Show more").stmt, {
+    t: "button",
+    label: "Show more",
+    tail: undefined,
+  });
+  assert.deepEqual(classifyLine("Open Settings").stmt, { t: "go", to: "Settings" });
+  assert.match(classifyLine("User taps Buy").error!, /When they tap/);
+});

@@ -28,16 +28,19 @@ Component: Product Card
   On tap Add go to Cart
 ```
 
-| Line                                | Meaning                                                              |
-| ----------------------------------- | -------------------------------------------------------------------- |
-| `Screen: Name` / `Component: Name`  | A page, or a reusable part. Indented lines belong to it.             |
-| `Show A, B`                         | Parts of the layout. Indent under a Show to nest.                    |
-| `For each x in y`                   | A repeated part. Children indented, or `… show Row` inline.          |
-| `If …` / `Else if …` / `Else`       | Choices. Children indented, or end with `go to X` / `show X`.        |
-| `On tap Buy`                        | An interaction. `go to X` inline, or If/Else lines below.            |
-| `Go to X`                           | A link to another screen.                                            |
-| `Loop … until … then go to X`       | Wait or repeat, then move on.                                        |
-| `Title:`, `Note:`, `//`             | Diagram title and comments.                                          |
+| Line                                               | Meaning                                                           |
+| -------------------------------------------------- | ----------------------------------------------------------------- |
+| `Screen: Name` / `Popup: Name` / `Component: Name` | A page, a modal, or a reusable part. Indented lines belong to it. |
+| `Show A, B`                                        | Parts of the layout. Indent under a Show to nest.                 |
+| `Text: …` / `Headline: …`                          | Words on the screen.                                              |
+| `Button Buy goes to Cart`                          | A button and where it leads.                                      |
+| `For each x in y`                                  | A repeated part. Children indented, or `… show Row` inline.       |
+| `If …` / `Else if …` / `Else`                      | Choices. Children indented, or end with `go to X` / `show X`.     |
+| `When they tap Buy go to Cart`                     | An event (also `On`, `After`). `If`/`Else` lines can go below.    |
+| `Step: Weigh the beans`                            | Numbered steps in a screen; `go to next step` / `go to step 3`.   |
+| `Go to X` / `Open X`                               | A link to another screen.                                         |
+| `Loop … until … then go to X`                      | Wait or repeat, then move on.                                     |
+| `Title:`, `Note:`, `//`                            | Diagram title and comments.                                       |
 
 Two views: **Storyboard** (each screen with its layout) and **Flow** (only how
 screens connect). The round button in the lower left, Esc or Ctrl/⌘+E switches

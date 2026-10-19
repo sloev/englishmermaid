@@ -33,20 +33,30 @@ fine as plain English, and the person can paste it into the app.
 One statement per line. Keywords are case-insensitive. Indent with two spaces
 (or a tab) to put lines inside the line above them.
 
-| Statement | Meaning |
-| --- | --- |
-| `Title: Shop` | Diagram title. Optional, once. |
-| `Screen: Cart` | A page, a step or a state. Also `Page:`. Lines indented under it belong to it. |
-| `Component: Product Card` | A reusable part. Any `Show Product Card` links to it. |
-| `Show Header` | A part of the layout. `Show A, B and C` adds several. Indent under a Show to nest parts inside it. |
-| `For each product in products` | A repeated part (a list or grid). Put `Show …` lines indented below, or write `For each product in products show Product Card`. |
-| `If cart is empty` | A choice. Indent what happens below it, or end the line with `go to X` or `show X`. |
-| `Else if cart has 10+ items` | Another branch. Must come straight after an `If` (or `Else if`) at the same indent. |
-| `Else` | The last branch. Also `Otherwise`. Also takes `go to X` or `show X` at the end of the line. |
-| `On tap Buy` | An interaction: a tap, click, submit, swipe, timer and so on. `On tap Buy go to Cart`, or put `If`/`Else`/`Go to` lines indented below. Also `When …`. |
-| `Go to Payment` | A link to another screen. |
-| `Loop bank checks until it answers then go to Receipt` | Wait or repeat until something happens, then move on. |
-| `// comment` or `Note: comment` | Ignored. |
+| Statement                                              | Meaning                                                                                                                                                                                             |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Title: Shop`                                          | Diagram title. Optional, once.                                                                                                                                                                      |
+| `Screen: Cart`                                         | A page, a step or a state. Also `Page:` and `View:`. Lines indented under it belong to it.                                                                                                          |
+| `Popup: Coffee Type`                                   | A modal or dialog that opens on top of a screen. Also `Modal:`, `Dialog:` and `Sheet:`. Drawn dashed.                                                                                               |
+| `Component: Product Card`                              | A reusable part. Any `Show Product Card` links to it.                                                                                                                                               |
+| `Show Header`                                          | A part of the layout. `Show A, B and C` adds several. Indent under a Show to nest parts inside it.                                                                                                  |
+| `Text: Free shipping` / `Headline: Pick a blend`       | Words on the screen. `Show "Free shipping"` works too.                                                                                                                                              |
+| `Button Checkout goes to Cart`                         | A button and where it leads. `Button: Cancel` without an action is fine. Also `Link`.                                                                                                               |
+| `For each product in products`                         | A repeated part (a list or grid). Put `Show …` lines indented below, or write `For each product in products show Product Card`.                                                                     |
+| `If cart is empty`                                     | A choice. Indent what happens below it, or end the line with `go to X` or `show X`.                                                                                                                 |
+| `Else if cart has 10+ items`                           | Another branch. Must come straight after an `If` (or `Else if`) at the same indent.                                                                                                                 |
+| `Else`                                                 | The last branch. Also `Otherwise`. Also takes `go to X` or `show X` at the end of the line.                                                                                                         |
+| `When they tap Buy go to Cart`                         | An event: a tap, click, submit, timer, a device finishing and so on. Also `On`, `After` and `Once`. Put `If`/`Else`/`Go to` lines indented below it, or end the line with the action.               |
+| `Step: Weigh 200 g of beans`                           | A numbered step inside a screen, drawn as "Step 1 of n". `Step 2: …` also works; numbers are assigned in order. Move between steps with `go to next step`, `go to previous step` or `go to step 3`. |
+| `Go to Payment`                                        | A link to another screen. Also `Open X`, `Return to X`, `Continue to X`.                                                                                                                            |
+| `Loop bank checks until it answers then go to Receipt` | Wait or repeat until something happens, then move on.                                                                                                                                               |
+| `// comment` or `Note: comment`                        | Ignored.                                                                                                                                                                                            |
+
+Ways to say "go to" at the end of a line: `go to`, `goes to`, `open`, `opens`,
+`advance to`, `move to`, `continue to`, `return to`, and the passive forms
+`you are taken to`, `is sent to` and `are advanced to`. Leading "you", "they",
+"the user" or "then" before those words are dropped, so
+`When the scan is done you are advanced to the next step` works.
 
 Rules that matter:
 
@@ -59,8 +69,40 @@ Rules that matter:
   words "go to" and "show" inside conditions.
 - Leading `- `, `* ` or `1. ` bullets are ignored, so Markdown-style lists work.
 - The first `Screen:` is drawn as the start screen.
+- Write lines from the screen's point of view, not as a story about the user:
+  `When they tap Buy go to Cart`, not `User taps Buy and goes to Cart`.
 
-## Example
+## Example: a guided task with a popup and steps
+
+Here is how to turn a narrative like "the user picks a blend, taps +, a modal
+asks which kind of coffee, then a roasting view walks through steps that
+advance when a USB analyser finishes" into a script:
+
+```
+Title: Datakaffe roast
+Screen: Library
+  Text: rooost.party
+  For each blend in my library
+    Show Blend Card
+  On tap + on Ethiopian Sunset open Coffee Type
+
+Component: Blend Card
+  Show Name, + Button
+
+Popup: Coffee Type
+  Headline: Datakaffe or almindelig kaffe?
+  Button Datakaffe goes to Datakaffe Roasting
+  Button Almindelig kaffe goes to Regular Roasting
+
+Screen: Datakaffe Roasting
+  Step: Measure 200 g of beans X into the analysis bowl
+    When the USB analyser has made the analysis go to next step
+  Step: Measure 200 g of beans Y into the analysis bowl
+    When the USB analyser has made the analysis go to next step
+  Step: Put both bowls into the roaster
+```
+
+## Example: a shop
 
 ```
 Title: Shop
