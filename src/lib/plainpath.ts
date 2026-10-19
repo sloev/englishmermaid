@@ -188,40 +188,6 @@ export const STARTER = ROAST;
 export const BLANK = `Screen: Home
   `;
 
-export type SnippetId =
-  | "screen"
-  | "popup"
-  | "show"
-  | "text"
-  | "image"
-  | "button"
-  | "choose"
-  | "each"
-  | "if"
-  | "else"
-  | "on"
-  | "step"
-  | "go";
-
-export const SNIPPETS: Record<
-  SnippetId,
-  { text: string; cursor: number; label: string; hint: string; kind: TokenKind }
-> = {
-  screen: { text: "Screen: ", cursor: 8, label: "Screen:", hint: "a page", kind: "screen" },
-  popup: { text: "Popup: ", cursor: 7, label: "Popup:", hint: "a modal", kind: "screen" },
-  show: { text: "Show ", cursor: 5, label: "Show", hint: "a part", kind: "show" },
-  text: { text: "Text: ", cursor: 6, label: "Text:", hint: "words", kind: "text" },
-  image: { text: "Image: ", cursor: 7, label: "Image:", hint: "a picture", kind: "media" },
-  button: { text: "Button  goes to ", cursor: 7, label: "Button", hint: "", kind: "button" },
-  choose: { text: "Choose :", cursor: 7, label: "Choose", hint: "a select", kind: "button" },
-  each: { text: "For each  show ", cursor: 9, label: "For each", hint: "a list", kind: "each" },
-  if: { text: "If ", cursor: 3, label: "If", hint: "a choice", kind: "if" },
-  else: { text: "Else", cursor: 4, label: "Else", hint: "", kind: "if" },
-  on: { text: "When  go to ", cursor: 5, label: "When", hint: "an event", kind: "on" },
-  step: { text: "Step: ", cursor: 6, label: "Step:", hint: "1 of n", kind: "step" },
-  go: { text: "Go to ", cursor: 6, label: "Go to", hint: "a link", kind: "go" },
-};
-
 // ------------------------------------------------------------- line level
 
 // Ways of saying "go to". The passive ones read naturally after an event:
@@ -1233,29 +1199,4 @@ function storyMermaid(journey: Journey): string {
 export function toMermaid(journey: Journey, view: ViewKind): string {
   if (!journey.blocks.length) return "";
   return view === "flow" ? flowMermaid(journey) : storyMermaid(journey);
-}
-
-// ---------------------------------------------------------------- editing
-
-export function insertSnippet(
-  source: string,
-  selStart: number,
-  selEnd: number,
-  snippet: string,
-  cursorInSnippet: number,
-): { next: string; cursor: number } {
-  const start = Math.max(0, Math.min(selStart, source.length));
-  const end = Math.max(start, Math.min(selEnd, source.length));
-  const lineStart = source.lastIndexOf("\n", start - 1) + 1;
-  const newlineAt = source.indexOf("\n", end);
-  const lineEnd = newlineAt === -1 ? source.length : newlineAt;
-  const before = source.slice(lineStart, start);
-  const after = source.slice(end, lineEnd);
-  // New lines keep the current line's indent, so snippets land in the same block.
-  const indent = before.match(/^[ \t]*/)![0];
-  const prefix = before.trim() ? `\n${indent}` : "";
-  const suffix = after.trim() ? `\n${indent}` : "";
-  const piece = prefix + snippet + suffix;
-  const next = source.slice(0, start) + piece + source.slice(end);
-  return { next, cursor: start + prefix.length + cursorInSnippet };
 }

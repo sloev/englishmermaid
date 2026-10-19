@@ -3,6 +3,7 @@ import {
   AlertCircle,
   BookOpen,
   Bot,
+  Check,
   Copy,
   Download,
   FileDown,
@@ -25,12 +26,9 @@ import {
   BLANK,
   classifyLine,
   EXAMPLES,
-  insertSnippet,
   parse,
-  SNIPPETS,
   STARTER,
   toMermaid,
-  type SnippetId,
   type ViewKind,
 } from "./lib/plainpath";
 import { plainLabels, renderMermaid } from "./lib/mermaid";
@@ -50,12 +48,21 @@ import { usePanZoom } from "./lib/use-pan-zoom";
 
 const STORAGE_KEY = "plainpath-script";
 const VIEW_KEY = "plainpath-view";
+const SAVED_KEY = "plainpath-saved";
 
 function stored(key: string): string | null {
   try {
     return localStorage.getItem(key);
   } catch {
     return null;
+  }
+}
+
+function forget(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* private mode */
   }
 }
 
@@ -75,7 +82,9 @@ export function App() {
   const [svg, setSvg] = useState("");
   const [mapNote, setMapNote] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [file, setFile] = useState<{ handle: FileHandle; saved: string } | null>(null);
+  const [handle, setHandle] = useState<FileHandle | null>(null);
+  // The script as last saved to (or opened from) a file; null if it never was.
+  const [saved, setSaved] = useState<string | null>(() => stored(SAVED_KEY));
   const [menuOpen, setMenuOpen] = useState(false);
   const [install, setInstall] = useState<{ prompt(): Promise<void> } | null>(null);
   const [undoSource, setUndoSource] = useState<string | null>(null);
@@ -94,6 +103,7 @@ export function App() {
   const ghostCount = journey.blocks.filter((block) => block.kind === "ghost").length;
 
   useEffect(() => store(STORAGE_KEY, source), [source]);
+  useEffect(() => (saved == null ? forget(SAVED_KEY) : store(SAVED_KEY, saved)), [saved]);
 
   // Share links (#text= / #s=) and files opened from the OS replace the script.
   useEffect(() => {
@@ -105,14 +115,16 @@ export function App() {
           if (current !== text) setUndoSource(current);
           return text;
         });
-        setFile(null);
+        setHandle(null);
+        setSaved(null);
         history.replaceState(null, "", location.pathname + location.search);
       });
     fromHash();
     window.addEventListener("hashchange", fromHash);
-    onLaunchFile((text, handle) => {
+    onLaunchFile((text, launched) => {
       setSource(text);
-      setFile({ handle, saved: text });
+      setHandle(launched);
+      setSaved(text);
     });
     const onInstall = (event: Event) => {
       event.preventDefault();
@@ -192,20 +204,6 @@ export function App() {
     else stageRef.current?.focus({ preventScroll: true });
   }, [editorOpen]);
 
-  function onInsert(id: SnippetId) {
-    const area = areaRef.current;
-    const { text, cursor } = SNIPPETS[id];
-    const result = insertSnippet(
-      source,
-      area?.selectionStart ?? source.length,
-      area?.selectionEnd ?? source.length,
-      text,
-      cursor,
-    );
-    pendingCursor.current = result.cursor;
-    setSource(result.next);
-  }
-
   function loadSource(next: string) {
     setUndoSource(source);
     map.resetFit();
@@ -238,17 +236,32 @@ export function App() {
   const base = fileName(journey.title);
 
   async function save(asNew = false) {
-    const handle = await saveText(source, base, asNew ? null : (file?.handle ?? null));
-    if (handle === undefined) return;
-    setFile(handle ? { handle, saved: source } : null);
-    flash(handle ? `Saved ${handle.name}` : `Downloaded ${base}${EXTENSION}`);
+    const target = await saveText(source, base, asNew ? null : handle);
+    if (target === undefined) return;
+    setHandle(target);
+    setSaved(source);
+    flash(target ? `Saved ${target.name}` : `Downloaded ${base}${EXTENSION}`);
+  }
+
+  function startNew() {
+    loadSource(BLANK);
+    setHandle(null);
+    setSaved(null);
+  }
+
+  function loadExample(next: string) {
+    loadSource(next);
+    setHandle(null);
+    setSaved(null);
+    setHelpOpen(false);
   }
 
   async function open() {
     const opened = await openText();
     if (!opened) return;
     loadSource(opened.text);
-    setFile(opened.handle ? { handle: opened.handle, saved: opened.text } : null);
+    setHandle(opened.handle);
+    setSaved(opened.text);
     setMenuOpen(false);
   }
 
@@ -268,14 +281,13 @@ export function App() {
   // Latest save/open for the global keyboard shortcuts.
   const actions = useRef({ save: (_asNew: boolean) => {}, open: () => {} });
   actions.current = { save: (asNew) => run(() => save(asNew)), open: () => run(open) };
-  const dirty = file != null && file.saved !== source;
+  const dirty = saved !== source;
 
   function switchView(next: ViewKind) {
     map.resetFit();
     setViewKind(next);
   }
 
-  const activeExample = EXAMPLES.find((example) => example.source === source)?.id;
   const chip =
     "tap inline-flex h-10 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium";
   const plainChip = `${chip} border-border bg-surface/80 text-fg`;
@@ -330,15 +342,49 @@ export function App() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <ViewSwitch value={viewKind} onChange={switchView} />
+              <button type="button" onClick={startNew} className={plainChip}>
+                <Plus aria-hidden="true" className="size-4" />
+                New
+              </button>
+              {undoSource != null ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSource(undoSource);
+                    setUndoSource(null);
+                  }}
+                  className={plainChip}
+                >
+                  <RotateCcw aria-hidden="true" className="size-4" />
+                  Undo
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => run(() => save())}
+                disabled={!dirty}
+                title="Ctrl+S"
+                className={
+                  dirty
+                    ? `${chip} border-accent bg-accent text-accent-ink`
+                    : `${plainChip} disabled:opacity-60`
+                }
+              >
+                {dirty ? (
+                  <Save aria-hidden="true" className="size-4" />
+                ) : (
+                  <Check aria-hidden="true" className="size-4" />
+                )}
+                {dirty ? "Save" : "Saved"}
+              </button>
               <button
                 type="button"
                 onClick={() => setMenuOpen((open) => !open)}
                 aria-expanded={menuOpen}
                 className={menuOpen ? `${chip} border-accent text-accent` : plainChip}
               >
-                <Save aria-hidden="true" className="size-4" />
-                File{dirty ? " •" : ""}
+                <FolderOpen aria-hidden="true" className="size-4" />
+                File
               </button>
               <button
                 type="button"
@@ -358,8 +404,8 @@ export function App() {
               className="rounded-card border border-border bg-surface/90 p-3 text-sm"
             >
               <p className="px-1 pb-3 text-xs text-muted">
-                {file
-                  ? `${dirty ? "Unsaved changes to" : "Saved to"} ${file.handle.name}.`
+                {handle
+                  ? `${dirty ? "Unsaved changes to" : "Saved to"} ${handle.name}.`
                   : "Kept in this browser automatically. Save to a file to keep it anywhere."}
               </p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -368,12 +414,6 @@ export function App() {
                   label="Open…"
                   hint="Ctrl+O"
                   onClick={() => run(open)}
-                />
-                <MenuButton
-                  icon={Save}
-                  label="Save"
-                  hint="Ctrl+S"
-                  onClick={() => run(() => save())}
                 />
                 <MenuButton
                   icon={Download}
@@ -429,59 +469,7 @@ export function App() {
             </section>
           ) : null}
 
-          {helpOpen ? <HowTo onClose={() => setHelpOpen(false)} /> : null}
-
-          <div className="flex flex-wrap gap-2">
-            {EXAMPLES.map((example) => (
-              <button
-                key={example.id}
-                type="button"
-                onClick={() => loadSource(example.source)}
-                className={
-                  activeExample === example.id
-                    ? `${chip} border-accent bg-accent text-accent-ink`
-                    : plainChip
-                }
-              >
-                {example.label}
-              </button>
-            ))}
-            <button type="button" onClick={() => loadSource(BLANK)} className={plainChip}>
-              <Plus aria-hidden="true" className="size-4" />
-              New
-            </button>
-            {undoSource != null ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setSource(undoSource);
-                  setUndoSource(null);
-                }}
-                className={plainChip}
-              >
-                <RotateCcw aria-hidden="true" className="size-4" />
-                Undo
-              </button>
-            ) : null}
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {(Object.keys(SNIPPETS) as SnippetId[]).map((id) => (
-              <button
-                key={id}
-                type="button"
-                onPointerDown={(event) => event.preventDefault()}
-                onClick={() => onInsert(id)}
-                className="tap flex h-10 shrink-0 items-center gap-2 rounded-xl border border-border bg-surface-2/80 px-3"
-                aria-label={`Insert ${SNIPPETS[id].label}: ${SNIPPETS[id].hint}`}
-              >
-                <span className={`tok-${SNIPPETS[id].kind} font-mono text-sm`}>
-                  {SNIPPETS[id].label}
-                </span>
-                <span className="text-xs text-muted">{SNIPPETS[id].hint}</span>
-              </button>
-            ))}
-          </div>
+          {helpOpen ? <HowTo onClose={() => setHelpOpen(false)} onExample={loadExample} /> : null}
 
           <div className="editor-stack script-text rounded-card" translate="no">
             <div className="editor-lines" aria-hidden="true">
@@ -743,7 +731,13 @@ const HELP: { code: string; text: string }[] = [
   },
 ];
 
-function HowTo({ onClose }: { onClose: () => void }) {
+function HowTo({
+  onClose,
+  onExample,
+}: {
+  onClose: () => void;
+  onExample: (source: string) => void;
+}) {
   return (
     <section
       className="rounded-card border border-border bg-surface/90 px-4 py-4 text-sm text-pretty"
@@ -762,7 +756,20 @@ function HowTo({ onClose }: { onClose: () => void }) {
           <X aria-hidden="true" className="size-4" />
         </button>
       </div>
-      <ul className="mt-3 flex flex-col gap-3">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-muted">Examples:</span>
+        {EXAMPLES.map((example) => (
+          <button
+            key={example.id}
+            type="button"
+            onClick={() => onExample(example.source)}
+            className="tap inline-flex h-9 items-center rounded-full border border-border bg-surface-2/80 px-4 font-medium text-fg"
+          >
+            {example.label}
+          </button>
+        ))}
+      </div>
+      <ul className="mt-4 flex flex-col gap-3">
         {HELP.map((item) => (
           <li key={item.text}>
             <span className="font-mono">

@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   EXAMPLES,
   classifyLine,
-  insertSnippet,
   mermaidLabel,
   parse,
   toMermaid,
@@ -133,12 +132,6 @@ test("tokens cover the whole line", () => {
 test("labels are made safe for mermaid", () => {
   const mermaid = toMermaid(parse('Screen: A "quoted" [x] {y}\n'), "flow");
   assert.match(mermaid, /\["A quoted x y"\]/);
-});
-
-test("insertSnippet keeps the current indent", () => {
-  const { next, cursor } = insertSnippet("Screen: A\n  Show X", 18, 18, "Go to ", 6);
-  assert.equal(next, "Screen: A\n  Show X\n  Go to ");
-  assert.equal(cursor, next.length);
 });
 
 test("buttons, text, headlines and popups", () => {
