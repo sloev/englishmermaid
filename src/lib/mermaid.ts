@@ -168,6 +168,32 @@ function buttonShadows(host: HTMLElement): boolean {
   return true;
 }
 
+// "For each" groups (subgraph ids e<n>) get two offset copies of their box
+// behind them, so a repeated part looks like a stack of cards.
+const STACK_CARDS: [number, string][] = [
+  [16, "fill:#141310;stroke:#4a4335;stroke-width:1.5px"],
+  [8, "fill:#191812;stroke:#7a705f;stroke-width:1.5px"],
+];
+
+function stackRepeats(host: HTMLElement): boolean {
+  let stacked = false;
+  for (const group of host.querySelectorAll<SVGGElement>("g.cluster")) {
+    if (!/-e\d+$/.test(group.id)) continue;
+    const box = group.querySelector<SVGRectElement>(":scope > rect");
+    if (!box) continue;
+    // Back card first, so the nearer one is drawn over it.
+    for (const [offset, style] of STACK_CARDS) {
+      const card = box.cloneNode() as SVGRectElement;
+      card.setAttribute("x", String(Number(box.getAttribute("x")) + offset));
+      card.setAttribute("y", String(Number(box.getAttribute("y")) + offset));
+      card.setAttribute("style", style);
+      group.insertBefore(card, box);
+    }
+    stacked = true;
+  }
+  return stacked;
+}
+
 // Layout fixes applied to every rendered diagram (live view and exports).
 function tidy(svg: string): string {
   const host = document.createElement("div");
@@ -177,6 +203,7 @@ function tidy(svg: string): string {
   try {
     let changed = topAlign(host);
     changed = buttonShadows(host) || changed;
+    changed = stackRepeats(host) || changed;
     // Links written backwards for layout (see Writer.edge) get their arrow turned round.
     for (const path of host.querySelectorAll<SVGPathElement>('path[id*="-back"]')) {
       if (!/-back\d+$/.test(path.id)) continue;

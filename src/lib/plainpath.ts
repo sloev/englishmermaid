@@ -1327,8 +1327,9 @@ function storyMermaid(journey: Journey): string {
       } else if (node.kind === "each") {
         const id = w.id("e");
         if (node.children.length) {
+          // Solid, so the stacked copies renderMermaid draws behind it don't show through.
           group(owner, id, `For each ${node.item}`, node.children, depth);
-          w.line(`style ${id} stroke-dasharray:5 4`, depth);
+          w.line(`style ${id} fill:#1c1a15,stroke:#8a7f6c`, depth);
         } else {
           w.node(id, `@{ shape: procs, label: ${q(`For each ${node.item}`)} }`, "show", depth);
         }
