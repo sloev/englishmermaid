@@ -40,7 +40,7 @@ One statement per line. Keywords are case-insensitive. Indent with two spaces
 | `Popup: Coffee Type`                                   | A modal or dialog that opens on top of a screen. Also `Modal:`, `Dialog:` and `Sheet:`. Drawn dashed.                                                                                                                                                                                                                                                     |
 | `Component: Product Card`                              | A reusable part. Any `Show Product Card` links to it.                                                                                                                                                                                                                                                                                                     |
 | `Show Header`                                          | A part of the layout. `Show A, B and C` adds several. Indent under a Show to nest parts inside it.                                                                                                                                                                                                                                                        |
-| `Text: Free shipping` / `Headline: Pick a blend`       | Words on the screen. `Show "Free shipping"` works too.                                                                                                                                                                                                                                                                                                    |
+| `Text: Free shipping` / `Headline: Pick a blend`       | Words on the screen. `Show "Free shipping"` works too. For several lines, end the line after `Text:` (or `Headline:`) and write the lines indented below it; they are taken word for word, keywords included, and an empty line inside makes a paragraph break.                                                                                           |
 | `Image: hero photo of the beans`                       | A picture placeholder, drawn as a picture frame in the storyboard. Also `Photo:`, `Picture:`, `Illustration:`, `Logo:`, `Avatar:`, `Banner:`, or `Photo of …`. `Video: how to roast` draws a play button. Add `(square)` or `(tall)` at the end for the shape. A `Show` part named like a picture (`Show Hero Image`, `Show Logo`) is drawn the same way. |
 | `Button Checkout goes to Cart`                         | A button and where it leads. `Button: Cancel` without an action is fine. Also `Link`.                                                                                                                                                                                                                                                                     |
 | `Choose roast flow:`                                   | A select. Each line indented under it is one option: `Datakaffe: weigh and analyse first, goes to Datakaffe Roasting`. The text after the colon is a description and is optional, as is the `goes to …`. Any words can be an option label, even keywords.                                                                                                 |
@@ -49,7 +49,7 @@ One statement per line. Keywords are case-insensitive. Indent with two spaces
 | `Else if cart has 10+ items`                           | Another branch. Must come straight after an `If` (or `Else if`) at the same indent.                                                                                                                                                                                                                                                                       |
 | `Else`                                                 | The last branch. Also `Otherwise`. Also takes `go to X` or `show X` at the end of the line.                                                                                                                                                                                                                                                               |
 | `When they tap Buy go to Cart`                         | An event: a tap, click, submit, timer, a device finishing and so on. Also `On`, `After` and `Once`. Put `If`/`Else`/`Go to` lines indented below it, or end the line with the action.                                                                                                                                                                     |
-| `Step: Weigh 200 g of beans`                           | A numbered step inside a screen, drawn as "Step 1 of n". `Step 2: …` also works; numbers are assigned in order. Move between steps with `go to next step`, `go to previous step` or `go to step 3`.                                                                                                                                                       |
+| `Step: Weigh 200 g of beans`                           | A numbered step inside a screen, drawn as "Step 1 of n". `Step 2: …` also works; numbers are assigned in order. Move between steps with `go to next step`, `go to previous step` or `go to step 3`. A step with no `go to` of its own continues to the next step automatically.                                                                           |
 | `Go to Payment`                                        | A link to another screen. Also `Open X`, `Return to X`, `Continue to X`.                                                                                                                                                                                                                                                                                  |
 | `Loop bank checks until it answers then go to Receipt` | Wait or repeat until something happens, then move on.                                                                                                                                                                                                                                                                                                     |
 | `// comment` or `Note: comment`                        | Ignored.                                                                                                                                                                                                                                                                                                                                                  |
@@ -99,11 +99,18 @@ Popup: Coffee Type
   Button Cancel goes to Library
 
 Screen: Datakaffe Roasting
-  Step: Measure 200 g of beans X into the analysis bowl
+  Step: Measure beans X
+    Text:
+      Put the analysis bowl on the scale.
+      Measure 200 g of beans X into it.
     When the USB analyser has made the analysis go to next step
-  Step: Measure 200 g of beans Y into the analysis bowl
+  Step: Measure beans Y
+    Text:
+      Empty the bowl into the roaster.
+      Measure 200 g of beans Y into it.
     When the USB analyser has made the analysis go to next step
   Step: Put both bowls into the roaster
+  Step: Start the roast
 ```
 
 ## Example: a shop

@@ -329,3 +329,59 @@ test("avatars default to square", () => {
   assert.equal((classifyLine("Avatar: Maria").stmt as { size: string }).size, "square");
   assert.match(toMermaid(parse("Screen: A\n  Show User Avatar\n"), "story"), /w: 120, h: 120/);
 });
+
+test("multi-line text blocks are taken word for word", () => {
+  const src = `Screen: Roast
+  Step: Measure beans X
+    Text:
+      Put the analysis bowl on the scale.
+      Show the scale to the camera, if you like.
+
+      Pour in 200 g of beans X.
+    When the analyser is done go to next step
+  Step: Roast
+`;
+  const journey = parse(src);
+  assert.deepEqual(journey.issues, []);
+  const step = journey.blocks[0].steps[0];
+  const text = step.children[0] as Extract<Node, { kind: "text" }>;
+  assert.equal(
+    text.text,
+    "Put the analysis bowl on the scale.\nShow the scale to the camera, if you like.\n\nPour in 200 g of beans X.",
+  );
+  assert.equal(step.children[1].kind, "on", "dedenting ends the text block");
+  assert.deepEqual(
+    journey.lines[4].tokens.map((t) => t.kind),
+    ["plain", "name"],
+    "keywords inside the block are not highlighted",
+  );
+  assert.match(
+    toMermaid(journey, "story"),
+    /“Put the analysis bowl on<br>the scale\.<br>Show the scale to the<br>camera, if you like\.<br><br>Pour in 200 g of beans X\.”/,
+  );
+});
+
+test("an empty text block is reported", () => {
+  assert.match(parse("Screen: A\n  Text:\n  Show X\n").issues[0].message, /Write the words/);
+});
+
+test("steps without a way on continue to the next step", () => {
+  const src = `Screen: Roast
+  Step: One
+  Step: Two
+    When done go to step 1
+  Step: Three
+`;
+  const journey = parse(src);
+  const flow = toMermaid(journey, "flow");
+  const ids = [...flow.matchAll(/(p\d+)\("Step (\d) of 3/g)].map((m) => m[1]);
+  assert.equal(ids.length, 3);
+  assert.ok(flow.includes(`${ids[0]} --> ${ids[1]}`), "step 1 has no moves, so it flows on");
+  assert.ok(!flow.includes(`${ids[1]} --> ${ids[2]}`), "step 2 says where to go");
+  assert.ok(flow.includes(`${ids[1]} -->|"done"| ${ids[0]}`));
+  assert.equal(
+    [...flow.matchAll(new RegExp(`${ids[2]} -->`, "g"))].length,
+    0,
+    "the last step goes nowhere",
+  );
+});

@@ -39,6 +39,7 @@ type Stmt =
   | { t: "button"; label: string; tail?: Tail }
   | { t: "choose"; prompt: string }
   | { t: "option"; label: string; text: string; tail?: Tail }
+  | { t: "words"; text: string }
   | { t: "step"; title: string }
   | { t: "text"; text: string; heading: boolean }
   | { t: "media"; caption: string; video: boolean; size: MediaSize }
@@ -114,11 +115,18 @@ Popup: Coffee Type
   Button Cancel goes to Library
 
 Screen: Datakaffe Roasting
-  Step: Measure 200 g of beans X into the analysis bowl
+  Step: Measure beans X
+    Text:
+      Put the analysis bowl on the scale.
+      Measure 200 g of beans X into it.
     When the USB analyser has made the analysis go to next step
-  Step: Measure 200 g of beans Y into the analysis bowl
+  Step: Measure beans Y
+    Text:
+      Empty the bowl into the roaster.
+      Measure 200 g of beans Y into it.
     When the USB analyser has made the analysis go to next step
   Step: Put both bowls into the roaster
+  Step: Start the roast
 `;
 
 const SHOP = `Title: Shop
@@ -341,6 +349,12 @@ export function classifyOption(raw: string): Line {
   return make({ t: "option", label: head, text: "", tail }, asLabel(segs), error);
 }
 
+/** A line inside a multi-line `Text:` block: taken word for word. */
+export function classifyWords(raw: string): Line {
+  const { body, make } = lineParts(raw);
+  return make({ t: "words", text: body.trim() }, [[body, "name"]]);
+}
+
 export function classifyLine(raw: string): Line {
   const { body, make } = lineParts(raw);
   const word = (re: RegExp) => body.match(re)?.[0];
@@ -393,11 +407,8 @@ export function classifyLine(raw: string): Line {
   if ((m = word(/^(?:text|headline|heading|label|message|says?)\b\s*:?/i))) {
     const text = unquote(body.slice(m.length));
     const heading = /^head/i.test(m);
-    return make(
-      { t: "text", text, heading },
-      keyed("text", m),
-      text ? undefined : "Write the words to show",
-    );
+    // With nothing after the colon, the indented lines below are the text.
+    return make({ t: "text", text, heading }, keyed("text", m));
   }
 
   if ((m = word(/^(?:choose|select|pick)(?=[\s:]|$)/i))) {
@@ -522,7 +533,9 @@ export function classifyLine(raw: string): Line {
 
 // ------------------------------------------------------------ tree level
 
-type Frame = { indent: number; children: Node[]; choose?: boolean };
+type TextNode = Extract<Node, { kind: "text" }>;
+
+type Frame = { indent: number; children: Node[]; choose?: boolean; words?: TextNode };
 
 function tailNodes(tail: Tail | undefined, line: number): Node[] {
   if (!tail) return [];
@@ -562,10 +575,23 @@ export function parse(source: string): Journey {
   lines.forEach((first, index) => {
     const number = index + 1;
     let line = first;
+    const words = stack[stack.length - 1]?.words;
+    if (words && line.stmt.t === "blank") {
+      // A blank line inside a text block is a paragraph break.
+      if (words.text) words.text += "\n";
+      return;
+    }
     if (block && line.stmt.t !== "blank" && line.stmt.t !== "note") {
       while (stack.length > 1 && stack[stack.length - 1].indent >= line.indent) stack.pop();
+      const top = stack[stack.length - 1];
       // Lines indented under a Choose are its options, whatever words they start with.
-      if (stack[stack.length - 1].choose) line = lines[index] = classifyOption(raw[index]);
+      if (top.choose) line = lines[index] = classifyOption(raw[index]);
+      // Lines indented under an empty Text: are its text, word for word.
+      if (top.words) {
+        line = lines[index] = classifyWords(raw[index]);
+        top.words.text += (top.words.text ? "\n" : "") + (line.stmt as { text: string }).text;
+        return;
+      }
     }
     const fail = (message: string) => {
       line.error = message;
@@ -611,8 +637,17 @@ export function parse(source: string): Journey {
         nodes.slice(0, -1).forEach((node) => add(node, false));
         return add(nodes[nodes.length - 1]);
       }
-      case "text":
-        return add({ kind: "text", text: stmt.text, heading: stmt.heading, line: number });
+      case "text": {
+        const node: TextNode = {
+          kind: "text",
+          text: stmt.text,
+          heading: stmt.heading,
+          line: number,
+        };
+        siblings.push(node);
+        if (!stmt.text) stack.push({ indent: line.indent, children: [], words: node });
+        return;
+      }
       case "media":
         return add({
           kind: "media",
@@ -736,6 +771,15 @@ export function parse(source: string): Journey {
             blocks.push({ name: node.to, kind: "ghost", line: node.line, children: [], steps: [] });
           }
         }
+        if (node.kind === "text") {
+          node.text = node.text.replace(/\n+$/, "");
+          if (!node.text) {
+            issues.push({
+              line: node.line,
+              message: "Write the words after the colon, or on indented lines below",
+            });
+          }
+        }
         if (node.kind === "choose" && !node.children.length) {
           issues.push({
             line: node.line,
@@ -794,8 +838,12 @@ export function wrapText(text: string, width = WRAP): string[] {
  * Mermaid's own measuring, which clips text when the font loads late.
  */
 export function mermaidLabel(input: string, width = WRAP): string {
-  const clean = cleanLabel(input);
-  return clean ? wrapText(clean, width).join("<br>") : " ";
+  // Each written line wraps on its own; an empty line stays as a gap.
+  const lines = input.split("\n").map((line) => {
+    const clean = cleanLabel(line);
+    return clean ? wrapText(clean, width).join("<br>") : "";
+  });
+  return lines.some(Boolean) ? lines.join("<br>") : " ";
 }
 
 const COLORS = {
@@ -902,6 +950,14 @@ function findBlock(blocks: Block[], name: string) {
   return blocks.find((b) => b.name.toLowerCase() === key);
 }
 
+// Anything that leads somewhere else: a go to or a loop, at any depth.
+const hasMoves = (nodes: Node[]): boolean =>
+  nodes.some((n) => n.kind === "go" || n.kind === "loop" || hasMoves(childrenOf(n)));
+
+/** A step that says nothing about moving on simply continues to the next step. */
+const flowsOn = (owner: Block, step: StepNode): StepNode | undefined =>
+  hasMoves(step.children) ? undefined : owner.steps[step.number];
+
 const stepLabel = (step: StepNode) =>
   `Step ${step.number} of ${step.total}<br>${mermaidLabel(step.title)}`;
 
@@ -922,9 +978,6 @@ function flowMermaid(journey: Journey): string {
   const used = new Set<Block>();
 
   // Components only appear when they carry interactions of their own.
-  const hasMoves = (nodes: Node[]): boolean =>
-    nodes.some((n) => n.kind === "go" || n.kind === "loop" || hasMoves(childrenOf(n)));
-
   for (const block of blocks) {
     if (block.kind === "component" && !hasMoves(block.children)) continue;
     const id = w.id("n");
@@ -970,6 +1023,8 @@ function flowMermaid(journey: Journey): string {
       } else if (node.kind === "choose") {
         walk(owner, fromId, node.children, labels, color);
       } else if (node.kind === "step") {
+        const next = flowsOn(owner, node);
+        if (next) w.edge(stepIds.get(node)!, stepIds.get(next)!, { color: COLORS.step });
         walk(owner, stepIds.get(node)!, node.children, [], COLORS.go);
       } else if (node.kind === "show") {
         const ref = findBlock(blocks, node.name);
@@ -1137,6 +1192,8 @@ function storyMermaid(journey: Journey): string {
           "headline",
         ];
         group(owner, id, `Step ${node.number} of ${node.total}`, node.children, depth, head);
+        const next = flowsOn(owner, node);
+        if (next) w.later.push([head[0], stepHeads.get(next)!, { color: COLORS.step }]);
         w.line(`style ${id} fill:#141c17,stroke:${COLORS.step}`, depth);
         ids.push(id);
       } else if (node.kind === "each") {

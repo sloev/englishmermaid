@@ -659,7 +659,7 @@ function onEditorKey(
     const opens =
       /^\s*(?:(?:screen|page|view|component|modal|popup|pop-up|dialog|sheet):|show\b|for each\b|if\b|else\b|otherwise\b|on\b|when\b|after\b|once\b|step\b|button\b|choose\b|select\b|pick\b)/i.test(
         line,
-      );
+      ) || /^\s*(?:text|headline|heading|label|message|says?)\s*:\s*$/i.test(line);
     const inline = /\s(go(es)?\s+to|opens?|show)\s+\S/i.test(line.replace(/^\s*show\s/i, " "));
     insert = `\n${indent}${opens && !inline ? "  " : ""}`;
   } else if (event.key === "Tab" && !event.shiftKey && start === end) {
@@ -732,7 +732,10 @@ const HELP: { code: string; text: string }[] = [
     code: "Show Header, Search",
     text: "Parts of the layout. Indent under a Show to nest parts inside it.",
   },
-  { code: "Text: Free shipping|Headline: Pick a blend", text: "Words on the screen." },
+  {
+    code: "Text: Free shipping|Headline: Pick a blend",
+    text: "Words on the screen. For several lines, leave the rest of the line empty after 'Text:' and write the lines indented below it; they are taken word for word.",
+  },
   {
     code: "Image: hero photo of the beans|Video: how to roast (square)",
     text: "A picture or video placeholder. Add (square) or (tall) for the shape. 'Show Hero Image' or 'Show Logo' are drawn as pictures too.",
@@ -756,7 +759,7 @@ const HELP: { code: string; text: string }[] = [
   },
   {
     code: "Step: Weigh 200 g of beans",
-    text: "Numbered steps inside a screen (Step 1 of n). Move on with 'go to next step' or 'go to step 3'.",
+    text: "Numbered steps inside a screen (Step 1 of n). Move on with 'When … go to next step' or 'go to step 3'; a step that says nothing about moving on continues to the next step by itself.",
   },
   {
     code: "Go to Home|Open Coffee Type",
