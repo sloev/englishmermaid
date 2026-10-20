@@ -4,6 +4,8 @@ import type { KeyboardEvent, PointerEvent, RefObject } from "react";
 export type View = { x: number; y: number; scale: number };
 
 const MAX_SCALE = 8;
+const DOUBLE_TAP_MS = 300;
+const DOUBLE_TAP_ZOOM = 2.5;
 const FIT_PADDING = 48;
 // How much of the chart (in screen pixels, per axis) must always stay on screen.
 const KEEP_VISIBLE = 120;
@@ -169,7 +171,27 @@ export function usePanZoom(
 
   const grabbing = (on: boolean) => stage.current?.classList.toggle("is-grabbing", on);
 
+  // Double tap (or double click): zoom in on that spot, or back out to see everything.
+  const lastTap = useRef({ at: 0, x: 0, y: 0 });
+  const doubleTap = (event: PointerEvent<HTMLElement>) => {
+    const now = event.timeStamp;
+    const last = lastTap.current;
+    const near = Math.hypot(event.clientX - last.x, event.clientY - last.y) < 30;
+    if (now - last.at > DOUBLE_TAP_MS || !near) {
+      lastTap.current = { at: now, x: event.clientX, y: event.clientY };
+      return false;
+    }
+    lastTap.current = { at: 0, x: 0, y: 0 };
+    if (view.current.scale > size.current.fitScale * 1.2) fit();
+    else {
+      const rect = event.currentTarget.getBoundingClientRect();
+      zoomAt(DOUBLE_TAP_ZOOM, event.clientX - rect.left, event.clientY - rect.top);
+    }
+    return true;
+  };
+
   const onPointerDown = (event: PointerEvent<HTMLElement>) => {
+    if (pointers.current.size === 0 && doubleTap(event)) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     const current = view.current;
@@ -260,7 +282,6 @@ export function usePanZoom(
       onPointerMove,
       onPointerUp,
       onPointerCancel: onPointerUp,
-      onDoubleClick: fit,
       onKeyDown,
     },
   };

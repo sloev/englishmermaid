@@ -3,21 +3,21 @@ import {
   AlertCircle,
   BookOpen,
   Bot,
-  Check,
   Copy,
   Download,
   FileDown,
   FolderOpen,
+  History,
   Image,
   Link,
+  MessageCircle,
   MonitorDown,
-  Save,
+  Trash2,
   LayoutTemplate,
   Maximize,
   Minus,
   PenLine,
   Plus,
-  RotateCcw,
   Route,
   Workflow,
   X,
@@ -49,25 +49,43 @@ import {
 } from "./lib/files";
 import { addPngSource, addSvgSource } from "./lib/embed";
 import { usePanZoom } from "./lib/use-pan-zoom";
+import {
+  createDoc,
+  deleteDoc,
+  docTitle,
+  listDocs,
+  listVersions,
+  openLibrary,
+  readDoc,
+  saveDoc,
+  setCurrentDoc,
+  type DocMeta,
+  type Version,
+} from "./lib/library";
+import { ChatPanel, useChat } from "./ChatPanel";
 
-const STORAGE_KEY = "plainpath-script";
 const VIEW_KEY = "plainpath-view";
-const SAVED_KEY = "plainpath-saved";
 const RENDER_DELAY = 300;
+const AUTOSAVE_DELAY = 800;
+
+type Panel = "file" | "help" | "chat" | null;
+
+/** "just now", "5 min ago", "14:02", "3 Oct" */
+function when(at: number): string {
+  const ago = Date.now() - at;
+  if (ago < 60_000) return "just now";
+  if (ago < 3_600_000) return `${Math.round(ago / 60_000)} min ago`;
+  const date = new Date(at);
+  return ago < 86_400_000
+    ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleDateString([], { day: "numeric", month: "short" });
+}
 
 function stored(key: string): string | null {
   try {
     return localStorage.getItem(key);
   } catch {
     return null;
-  }
-}
-
-function forget(key: string) {
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    /* private mode */
   }
 }
 
@@ -80,27 +98,29 @@ function store(key: string, value: string) {
 }
 
 export function App() {
-  const [source, setSource] = useState(() => stored(STORAGE_KEY) ?? STARTER);
+  // The document shown on start: the last one used, or the starter example.
+  const [boot] = useState(() => openLibrary(STARTER));
+  const [docId, setDocId] = useState(boot.id);
+  const [source, setSource] = useState(boot.source);
+  const [docs, setDocs] = useState<DocMeta[]>(listDocs);
   const [viewKind, setViewKind] = useState<ViewKind>(() =>
     stored(VIEW_KEY) === "flow" ? "flow" : "story",
   );
   const [svg, setSvg] = useState("");
   const [mapNote, setMapNote] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // A file on disk the current document was opened from or saved to (this visit only).
   const [handle, setHandle] = useState<FileHandle | null>(null);
-  // The script as last saved to (or opened from) a file; null if it never was.
-  const [saved, setSaved] = useState<string | null>(() => stored(SAVED_KEY));
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [panel, setPanel] = useState<Panel>(null);
   const [install, setInstall] = useState<{ prompt(): Promise<void> } | null>(null);
-  const [undoSource, setUndoSource] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(true);
-  const [helpOpen, setHelpOpen] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const pendingCursor = useRef<number | null>(null);
   const layerRef = useRef<HTMLDivElement>(null);
   const map = usePanZoom(stageRef, layerRef, hostRef);
+  const chat = useChat();
 
   const journey = useMemo(() => parse(source), [source]);
   const mermaid = useMemo(() => toMermaid(journey, viewKind), [journey, viewKind]);
@@ -108,30 +128,80 @@ export function App() {
   const screenCount = journey.blocks.filter((block) => block.kind === "screen").length;
   const ghostCount = journey.blocks.filter((block) => block.kind === "ghost").length;
 
-  useEffect(() => store(STORAGE_KEY, source), [source]);
-  useEffect(() => (saved == null ? forget(SAVED_KEY) : store(SAVED_KEY, saved)), [saved]);
+  // Autosave shortly after typing stops; flush() saves right away (before switching).
+  const latest = useRef({ docId, source });
+  latest.current = { docId, source };
+  const flush = () => setDocs(saveDoc(latest.current.docId, latest.current.source));
+  useEffect(() => {
+    const timer = window.setTimeout(flush, AUTOSAVE_DELAY);
+    return () => window.clearTimeout(timer);
+  }, [source, docId]);
+  useEffect(() => {
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
 
-  // Share links (#text= / #s=) and files opened from the OS replace the script.
+  /** Shows `next` as a new document, so nothing open is ever overwritten. */
+  function openDoc(next: string, from: FileHandle | null = null) {
+    flush();
+    const meta = createDoc(next);
+    setDocs(listDocs());
+    show(meta.id, next);
+    setHandle(from);
+  }
+
+  function switchDoc(id: string) {
+    if (id === docId) return;
+    flush();
+    setCurrentDoc(id);
+    show(id, readDoc(id) ?? "");
+    setHandle(null);
+  }
+
+  function show(id: string, next: string) {
+    map.resetFit();
+    pendingCursor.current = next.length;
+    setDocId(id);
+    setSource(next);
+  }
+
+  function removeDoc(id: string, title: string) {
+    if (!window.confirm(`Delete “${title}” from this browser? Its history goes too.`)) return;
+    deleteDoc(id);
+    const rest = listDocs();
+    setDocs(rest);
+    if (id !== docId) return;
+    if (rest[0]) {
+      setCurrentDoc(rest[0].id);
+      show(rest[0].id, readDoc(rest[0].id) ?? "");
+    } else {
+      const meta = createDoc(BLANK);
+      setDocs(listDocs());
+      show(meta.id, BLANK);
+    }
+    setHandle(null);
+  }
+
+  function restore(version: Version) {
+    flush();
+    setSource(version.source);
+    flash(`Restored the version from ${when(version.at)}`);
+  }
+
+  // Share links (#text= / #s=) and files opened from the OS open as new documents.
+  const opener = useRef(openDoc);
+  opener.current = openDoc;
   useEffect(() => {
     const fromHash = () =>
       readShareHash(location.hash).then(({ text, view }) => {
         if (view === "flow" || view === "story") setViewKind(view);
         if (text == null) return;
-        setSource((current) => {
-          if (current !== text) setUndoSource(current);
-          return text;
-        });
-        setHandle(null);
-        setSaved(null);
         history.replaceState(null, "", location.pathname + location.search);
+        opener.current(text);
       });
     fromHash();
     window.addEventListener("hashchange", fromHash);
-    onLaunchFile((text, launched) => {
-      setSource(text);
-      setHandle(launched);
-      setSaved(text);
-    });
+    onLaunchFile((text, launched) => opener.current(text, launched));
     const onInstall = (event: Event) => {
       event.preventDefault();
       setInstall(event as unknown as { prompt(): Promise<void> });
@@ -143,6 +213,7 @@ export function App() {
     };
   }, []);
   useEffect(() => store(VIEW_KEY, viewKind), [viewKind]);
+  useEffect(() => chat.show(panel === "chat"), [panel]);
 
   useEffect(() => {
     if (pendingCursor.current == null) return;
@@ -197,26 +268,18 @@ export function App() {
         event.preventDefault();
         actions.current.open();
       } else if (event.key === "Escape" && editorOpen) {
-        if (helpOpen) setHelpOpen(false);
-        else if (menuOpen) setMenuOpen(false);
+        if (panel) setPanel(null);
         else setEditorOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editorOpen, helpOpen, menuOpen]);
+  }, [editorOpen, panel]);
 
   useEffect(() => {
     if (editorOpen) areaRef.current?.focus({ preventScroll: true });
     else stageRef.current?.focus({ preventScroll: true });
   }, [editorOpen]);
-
-  function loadSource(next: string) {
-    setUndoSource(source);
-    map.resetFit();
-    pendingCursor.current = next.length;
-    setSource(next);
-  }
 
   function selectLine(line: number) {
     const area = areaRef.current;
@@ -242,25 +305,17 @@ export function App() {
 
   const base = fileName(journey.title);
 
+  // Everything autosaves in the browser; this writes a copy to a file.
   async function save(asNew = false) {
     const target = await saveText(source, base, asNew ? null : handle);
     if (target === undefined) return;
     setHandle(target);
-    setSaved(source);
     flash(target ? `Saved ${target.name}` : `Downloaded ${base}${EXTENSION}`);
   }
 
-  function startNew() {
-    loadSource(BLANK);
-    setHandle(null);
-    setSaved(null);
-  }
-
   function loadExample(next: string) {
-    loadSource(next);
-    setHandle(null);
-    setSaved(null);
-    setHelpOpen(false);
+    openDoc(next);
+    setPanel(null);
   }
 
   async function open() {
@@ -271,11 +326,9 @@ export function App() {
   // A script file, or an SVG/PNG export with its script inside.
   function useOpened({ text, handle, name }: Opened) {
     if (text == null) return flash(`${name} has no Plainpath script in it`);
-    loadSource(text);
-    setHandle(handle);
-    // A picture is not a script file: Save then asks where to write the script.
-    setSaved(handle ? text : null);
-    setMenuOpen(false);
+    // A picture is never the file Ctrl+S writes to (it has no handle).
+    openDoc(text, handle);
+    setPanel(null);
     flash(`Opened ${name}`);
   }
 
@@ -307,7 +360,8 @@ export function App() {
   // Latest save/open for the global keyboard shortcuts.
   const actions = useRef({ save: (_asNew: boolean) => {}, open: () => {} });
   actions.current = { save: (asNew) => run(() => save(asNew)), open: () => run(open) };
-  const dirty = saved !== source;
+
+  const toggle = (next: Panel) => setPanel((open) => (open === next ? null : next));
 
   function switchView(next: ViewKind) {
     map.resetFit();
@@ -356,62 +410,55 @@ export function App() {
               <div>
                 <h1 className="text-xl font-semibold tracking-tight">Plainpath</h1>
                 <p className="text-xs tabular-nums text-muted">
-                  {journey.title ? <span className="text-fg">{journey.title}</span> : "Untitled"}
+                  <span className="text-fg">{docTitle(source)}</span>
                   {` · ${screenCount} ${screenCount === 1 ? "screen" : "screens"}`}
                   {ghostCount > 0 ? ` · ${ghostCount} not written yet` : ""}
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={startNew} className={plainChip}>
+              <button type="button" onClick={() => openDoc(BLANK)} className={plainChip}>
                 <Plus aria-hidden="true" className="size-4" />
                 New
               </button>
-              {undoSource != null ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSource(undoSource);
-                    setUndoSource(null);
-                  }}
-                  className={plainChip}
-                >
-                  <RotateCcw aria-hidden="true" className="size-4" />
-                  Undo
-                </button>
-              ) : null}
               <button
                 type="button"
-                onClick={() => run(() => save())}
-                disabled={!dirty}
-                title="Ctrl+S"
-                className={
-                  dirty
-                    ? `${chip} border-accent bg-accent text-accent-ink`
-                    : `${plainChip} disabled:opacity-60`
-                }
+                onClick={() => run(() => save(true))}
+                title="Save a copy as a file (Ctrl+S)"
+                className={plainChip}
               >
-                {dirty ? (
-                  <Save aria-hidden="true" className="size-4" />
-                ) : (
-                  <Check aria-hidden="true" className="size-4" />
-                )}
-                {dirty ? "Save" : "Saved"}
+                <Download aria-hidden="true" className="size-4" />
+                Save as…
               </button>
               <button
                 type="button"
-                onClick={() => setMenuOpen((open) => !open)}
-                aria-expanded={menuOpen}
-                className={menuOpen ? `${chip} border-accent text-accent` : plainChip}
+                onClick={() => toggle("file")}
+                aria-expanded={panel === "file"}
+                className={panel === "file" ? `${chip} border-accent text-accent` : plainChip}
               >
                 <FolderOpen aria-hidden="true" className="size-4" />
-                File
+                Files
               </button>
               <button
                 type="button"
-                onClick={() => setHelpOpen((open) => !open)}
-                aria-expanded={helpOpen}
-                className={helpOpen ? `${chip} border-accent text-accent` : plainChip}
+                onClick={() => toggle("chat")}
+                aria-expanded={panel === "chat"}
+                aria-label={chat.unread ? `Chat, ${chat.unread} new` : "Chat"}
+                title="Chat and send files to friends"
+                className={`relative ${panel === "chat" ? `${chip} border-accent text-accent` : plainChip} px-3`}
+              >
+                <MessageCircle aria-hidden="true" className="size-4" />
+                {chat.unread ? (
+                  <span className="absolute -top-1 -right-1 grid min-w-5 place-items-center rounded-full bg-accent px-1 text-xs font-semibold text-accent-ink tabular-nums">
+                    {chat.unread}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                onClick={() => toggle("help")}
+                aria-expanded={panel === "help"}
+                className={panel === "help" ? `${chip} border-accent text-accent` : plainChip}
               >
                 <BookOpen aria-hidden="true" className="size-4" />
                 How to
@@ -419,15 +466,23 @@ export function App() {
             </div>
           </header>
 
-          {menuOpen ? (
+          {panel === "file" ? (
             <section
-              aria-label="File"
-              className="rounded-card border border-border bg-surface/90 p-3 text-sm"
+              aria-label="Files"
+              className="flex flex-col gap-3 rounded-card border border-border bg-surface/95 p-3 text-sm"
             >
-              <p className="px-1 pb-3 text-xs text-muted">
+              <DocList docs={docs} current={docId} onOpen={switchDoc} onDelete={removeDoc} />
+              <VersionList
+                key={docId + docs.length}
+                docId={docId}
+                source={source}
+                onRestore={restore}
+              />
+              <p className="px-1 text-xs text-muted">
+                Everything saves in this browser as you type.
                 {handle
-                  ? `${dirty ? "Unsaved changes to" : "Saved to"} ${handle.name}.`
-                  : "Kept in this browser automatically. Save to a file to keep it anywhere."}
+                  ? ` Ctrl+S also writes to ${handle.name}.`
+                  : " Save as… keeps a copy as a file."}
               </p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <MenuButton
@@ -435,12 +490,6 @@ export function App() {
                   label="Open…"
                   hint="Ctrl+O"
                   onClick={() => run(open)}
-                />
-                <MenuButton
-                  icon={Download}
-                  label="Save as…"
-                  hint="⇧Ctrl+S"
-                  onClick={() => run(() => save(true))}
                 />
                 <MenuButton
                   icon={FileDown}
@@ -490,9 +539,28 @@ export function App() {
             </section>
           ) : null}
 
-          {helpOpen ? <HowTo onClose={() => setHelpOpen(false)} onExample={loadExample} /> : null}
+          {panel === "help" ? (
+            <HowTo onClose={() => setPanel(null)} onExample={loadExample} />
+          ) : null}
 
-          <div className="editor-stack script-text rounded-card" translate="no">
+          {panel === "chat" ? (
+            <ChatPanel
+              chat={chat}
+              title={docTitle(source)}
+              source={source}
+              onOpen={(text, title) => {
+                openDoc(text);
+                flash(`Opened “${title}” as a new file`);
+              }}
+              onClose={() => setPanel(null)}
+            />
+          ) : null}
+
+          <div
+            className="editor-stack script-text rounded-card"
+            translate="no"
+            onPointerDown={() => panel !== "chat" && setPanel(null)}
+          >
             <div className="editor-lines" aria-hidden="true">
               {journey.lines.map((line, index) => (
                 <EditorRow
@@ -519,10 +587,7 @@ export function App() {
               wrap="soft"
               aria-describedby="script-issues"
               onKeyDown={(event) => onEditorKey(event, setSource, pendingCursor)}
-              onChange={(event) => {
-                setUndoSource(null);
-                setSource(event.target.value);
-              }}
+              onChange={(event) => setSource(event.target.value)}
             />
           </div>
 
@@ -641,6 +706,99 @@ const EditorRow = memo(
   (a, b) => a.number === b.number && a.bad === b.bad && a.signature === b.signature,
 );
 
+// The documents saved in this browser, newest first.
+function DocList({
+  docs,
+  current,
+  onOpen,
+  onDelete,
+}: {
+  docs: DocMeta[];
+  current: string;
+  onOpen: (id: string) => void;
+  onDelete: (id: string, title: string) => void;
+}) {
+  return (
+    <div>
+      <p className="px-1 pb-1 text-xs font-medium text-muted">Your files</p>
+      <ul className="flex max-h-56 flex-col overflow-y-auto">
+        {docs.map((doc) => (
+          <li key={doc.id} className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onOpen(doc.id)}
+              aria-current={doc.id === current}
+              className={`tap flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left ${
+                doc.id === current ? "bg-accent/15 text-accent" : "text-fg"
+              }`}
+            >
+              <span className="min-w-0 flex-1 truncate">{doc.title}</span>
+              <span className="shrink-0 text-xs text-muted tabular-nums">{when(doc.updated)}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(doc.id, doc.title)}
+              aria-label={`Delete ${doc.title}`}
+              className="tap grid size-9 shrink-0 place-items-center rounded-lg text-muted"
+            >
+              <Trash2 aria-hidden="true" className="size-4" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// Earlier versions of the current document; picking one brings it back (the current text stays in history).
+function VersionList({
+  docId,
+  source,
+  onRestore,
+}: {
+  docId: string;
+  source: string;
+  onRestore: (version: Version) => void;
+}) {
+  const [all, setAll] = useState(false);
+  const versions = listVersions(docId).filter((version) => version.source !== source);
+  if (!versions.length) return null;
+  const shown = all ? versions : versions.slice(0, 5);
+  return (
+    <div>
+      <p className="flex items-center gap-1.5 px-1 pb-1 text-xs font-medium text-muted">
+        <History aria-hidden="true" className="size-3.5" />
+        Earlier versions of this file
+      </p>
+      <ul className="flex flex-wrap gap-1.5">
+        {shown.map((version) => (
+          <li key={version.at}>
+            <button
+              type="button"
+              onClick={() => onRestore(version)}
+              title={version.source.split("\n").slice(0, 3).join(" / ")}
+              className="tap h-8 rounded-full border border-border bg-surface-2/80 px-3 text-xs tabular-nums"
+            >
+              {when(version.at)} · {version.source.split("\n").length} lines
+            </button>
+          </li>
+        ))}
+        {versions.length > shown.length ? (
+          <li>
+            <button
+              type="button"
+              onClick={() => setAll(true)}
+              className="tap h-8 rounded-full px-3 text-xs text-muted underline"
+            >
+              {versions.length - shown.length} more
+            </button>
+          </li>
+        ) : null}
+      </ul>
+    </div>
+  );
+}
+
 function MenuButton({
   icon: Icon,
   label,
@@ -648,7 +806,7 @@ function MenuButton({
   disabled,
   onClick,
 }: {
-  icon: typeof Save;
+  icon: typeof Plus;
   label: string;
   hint?: string;
   disabled?: boolean;
@@ -861,10 +1019,12 @@ function HowTo({
         <span className="font-mono text-fg">Note:</span> are comments.
       </p>
       <p className="mt-3 text-muted">
+        Everything saves in this browser as you type; Files lists your files and earlier versions.
         Exported SVG and PNG files keep the script inside: open or drop one here to keep editing.
-        Storyboard shows each screen with its layout; Flow shows only how screens connect. Press the
-        round button (or Esc) to explore the map: drag to move, scroll or pinch to zoom,
-        double-click to fit. Ctrl+E switches back.
+        The chat bubble finds friends with Plainpath open in the same room, so you can send each
+        other files. Storyboard shows each screen with its layout; Flow shows only how screens
+        connect. Press the round button (or Esc) to explore the map: drag to move, scroll or pinch
+        to zoom, double tap to zoom in on a spot and again to see everything. Ctrl+E switches back.
       </p>
       <div className="mt-4 rounded-xl border border-border bg-surface-2/60 p-3">
         <p className="inline-flex items-center gap-2 font-medium text-fg">

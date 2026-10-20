@@ -4,7 +4,7 @@ Describe screens, layout and interactions in plain English and get a live
 [Mermaid](https://mermaid.js.org) diagram behind your text.
 
 **App:** https://sloev.github.io/englishmermaid/. It installs as an app and works
-offline. Save and open `.plainpath` files, export SVG, PNG or Mermaid, or copy a
+offline. Your files autosave in the browser with history. Save and open `.plainpath` files, export SVG, PNG or Mermaid, or copy a
 share link. Exported SVG and PNG files carry the script inside them, so you can
 open (or drop) one later and carry on editing.
 
@@ -48,7 +48,13 @@ Component: Product Card
 Two views: **Storyboard** (each screen with its layout) and **Flow** (only how
 screens connect). The round button in the lower left, Esc or Ctrl/⌘+E switches
 between the editor and the full-screen map (drag, scroll or pinch to zoom,
-double-click to fit).
+double tap to zoom in on a spot and again to see everything).
+
+**Files** autosave in the browser (localStorage) with a version history; switch
+between them in the Files panel. **Chat** (the speech bubble) connects browsers
+in the same room directly over WebRTC with [Trystero](https://github.com/dmotz/trystero),
+using public Nostr relays only to find each other: send a message, or send the
+current file to one person or everyone. Received files open as new files.
 
 ## Develop
 
