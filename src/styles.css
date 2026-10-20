@@ -204,9 +204,14 @@
 }
 
 .map-stage {
+  cursor: grab;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.map-stage.is-grabbing {
+  cursor: grabbing;
 }
 
 .map-layer {
@@ -222,12 +227,11 @@
   max-width: none;
 }
 
-/* The editor floats over the map: translucent + blurred so the diagram reads through. */
+/* The editor floats over the map, translucent so the diagram reads through. */
 .editor-layer {
   z-index: 20;
-  background: color-mix(in oklab, var(--color-bg) 62%, transparent);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  /* No backdrop blur: it repaints the whole chart on every keystroke. */
+  background: color-mix(in oklab, var(--color-bg) 72%, transparent);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;

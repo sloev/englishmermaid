@@ -76,3 +76,35 @@ export function plainLabels(code: string): string {
     ? `---\n${config}\n${code.slice(4)}`
     : `---\n${config}\n---\n${code}`;
 }
+
+// At most one render runs at a time. While it runs, only the newest request
+// waits; older waiting ones resolve to null so the caller skips them.
+let busy = false;
+let waiting: {
+  code: string;
+  resolve: (svg: string | null) => void;
+  reject: (e: unknown) => void;
+} | null = null;
+
+export function renderLatest(code: string): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    waiting?.resolve(null);
+    waiting = { code, resolve, reject };
+    void pump();
+  });
+}
+
+async function pump() {
+  if (busy || !waiting) return;
+  const job = waiting;
+  waiting = null;
+  busy = true;
+  try {
+    job.resolve(await renderMermaid(job.code));
+  } catch (error) {
+    job.reject(error);
+  } finally {
+    busy = false;
+    void pump();
+  }
+}

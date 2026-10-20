@@ -1,26 +1,30 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { KeyboardEvent, PointerEvent, RefObject } from "react";
 
 export type View = { x: number; y: number; scale: number };
 
-const MIN_SCALE = 0.1;
 const MAX_SCALE = 8;
 const FIT_PADDING = 48;
+// How much of the chart (in screen pixels, per axis) must always stay on screen.
+const KEEP_VISIBLE = 120;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 /**
- * Drag / wheel / pinch / keyboard pan-zoom for a stage element whose child is
- * transformed by the returned view. `content` is measured to fit it on screen.
+ * Drag / wheel / pinch / keyboard pan-zoom. `layer` is the element that gets
+ * transformed and `content` the chart inside it, measured for fitting and bounds.
+ *
+ * The view lives in a ref and is written straight to the layer's style once per
+ * animation frame, so moving a large chart never re-renders React.
  */
 export function usePanZoom(
   stage: RefObject<HTMLElement | null>,
+  layer: RefObject<HTMLElement | null>,
   content: RefObject<HTMLElement | null>,
 ) {
-  const [view, setView] = useState<View>({ x: 0, y: 0, scale: 1 });
-  const [grabbing, setGrabbing] = useState(false);
-  const viewRef = useRef(view);
-  viewRef.current = view;
+  const view = useRef<View>({ x: 0, y: 0, scale: 1 });
+  const size = useRef({ width: 0, height: 0, fitScale: 1 });
+  const frame = useRef(0);
   // Once the user moves the map we stop auto-fitting new renders.
   const moved = useRef(false);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -34,48 +38,90 @@ export function usePanZoom(
     oy: number;
   } | null>(null);
 
-  const move = useCallback((next: View | ((current: View) => View)) => {
-    moved.current = true;
-    setView(next);
-  }, []);
+  // Never smaller than half the "fit" size, never so far off that the chart is gone.
+  const bound = useCallback(
+    (next: View): View => {
+      const box = stage.current;
+      const { width, height, fitScale } = size.current;
+      if (!box || !width || !height) return next;
+      const scale = clamp(next.scale, Math.min(fitScale / 2, 1), MAX_SCALE);
+      const w = width * scale;
+      const h = height * scale;
+      const keepX = Math.min(KEEP_VISIBLE, w, box.clientWidth / 2);
+      const keepY = Math.min(KEEP_VISIBLE, h, box.clientHeight / 2);
+      return {
+        scale,
+        x: clamp(next.x, keepX - w, box.clientWidth - keepX),
+        y: clamp(next.y, keepY - h, box.clientHeight - keepY),
+      };
+    },
+    [stage],
+  );
+
+  const apply = useCallback(
+    (next: View) => {
+      view.current = bound(next);
+      if (frame.current) return;
+      frame.current = requestAnimationFrame(() => {
+        frame.current = 0;
+        const { x, y, scale } = view.current;
+        if (layer.current)
+          layer.current.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+      });
+    },
+    [bound, layer],
+  );
+
+  const move = useCallback(
+    (next: View | ((current: View) => View)) => {
+      moved.current = true;
+      apply(typeof next === "function" ? next(view.current) : next);
+    },
+    [apply],
+  );
+
+  // offsetWidth/Height ignore transforms, so this is the chart's own size.
+  const measure = useCallback(() => {
+    const box = stage.current;
+    const inner = content.current;
+    if (!box || !inner?.offsetWidth || !inner.offsetHeight) return false;
+    const width = inner.offsetWidth;
+    const height = inner.offsetHeight;
+    const fitScale = Math.min(
+      (box.clientWidth - FIT_PADDING * 2) / width,
+      (box.clientHeight - FIT_PADDING * 2) / height,
+      1.6,
+    );
+    size.current = { width, height, fitScale };
+    return true;
+  }, [stage, content]);
 
   const fit = useCallback(() => {
     const box = stage.current;
-    const inner = content.current;
-    if (!box || !inner) return;
-    const rect = inner.getBoundingClientRect();
-    const width = rect.width / viewRef.current.scale;
-    const height = rect.height / viewRef.current.scale;
-    if (!width || !height) return;
-    const scale = clamp(
-      Math.min(
-        (box.clientWidth - FIT_PADDING * 2) / width,
-        (box.clientHeight - FIT_PADDING * 2) / height,
-        1.6,
-      ),
-      MIN_SCALE,
-      MAX_SCALE,
-    );
+    if (!box || !measure()) return;
+    const { width, height, fitScale } = size.current;
     moved.current = false;
-    setView({
-      x: (box.clientWidth - width * scale) / 2,
-      y: (box.clientHeight - height * scale) / 2,
-      scale,
+    apply({
+      x: (box.clientWidth - width * fitScale) / 2,
+      y: (box.clientHeight - height * fitScale) / 2,
+      scale: fitScale,
     });
-  }, [stage, content]);
+  }, [stage, measure, apply]);
 
-  const autoFit = useCallback(() => {
+  /** Call after the chart changes: fits it, or keeps the user's view within the new bounds. */
+  const refresh = useCallback(() => {
     if (!moved.current) fit();
-  }, [fit]);
+    else if (measure()) apply(view.current);
+  }, [fit, measure, apply]);
 
   const zoomAt = useCallback(
     (factor: number, px: number, py: number) => {
-      const current = viewRef.current;
-      const scale = clamp(current.scale * factor, MIN_SCALE, MAX_SCALE);
+      const current = view.current;
+      const scale = bound({ ...current, scale: current.scale * factor }).scale;
       const ratio = scale / current.scale;
       move({ x: px - (px - current.x) * ratio, y: py - (py - current.y) * ratio, scale });
     },
-    [move],
+    [bound, move],
   );
 
   const zoom = useCallback(
@@ -87,9 +133,12 @@ export function usePanZoom(
   );
 
   useEffect(() => {
-    window.addEventListener("resize", autoFit);
-    return () => window.removeEventListener("resize", autoFit);
-  }, [autoFit]);
+    window.addEventListener("resize", refresh);
+    return () => {
+      window.removeEventListener("resize", refresh);
+      cancelAnimationFrame(frame.current);
+    };
+  }, [refresh]);
 
   // Wheel must be non-passive so the page itself never scrolls.
   useEffect(() => {
@@ -118,13 +167,15 @@ export function usePanZoom(
     return () => box.removeEventListener("wheel", onWheel);
   }, [stage, zoomAt, move]);
 
+  const grabbing = (on: boolean) => stage.current?.classList.toggle("is-grabbing", on);
+
   const onPointerDown = (event: PointerEvent<HTMLElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    const current = viewRef.current;
+    const current = view.current;
     if (pointers.current.size === 1) {
       drag.current = { x: event.clientX, y: event.clientY, ox: current.x, oy: current.y };
-      setGrabbing(true);
+      grabbing(true);
     } else if (pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()];
       const rect = event.currentTarget.getBoundingClientRect();
@@ -147,11 +198,8 @@ export function usePanZoom(
     if (start && pointers.current.size >= 2) {
       const [a, b] = [...pointers.current.values()];
       const rect = event.currentTarget.getBoundingClientRect();
-      const scale = clamp(
-        start.scale * (Math.hypot(a.x - b.x, a.y - b.y) / start.dist),
-        MIN_SCALE,
-        MAX_SCALE,
-      );
+      const wanted = start.scale * (Math.hypot(a.x - b.x, a.y - b.y) / start.dist);
+      const scale = bound({ ...view.current, scale: wanted }).scale;
       const ratio = scale / start.scale;
       const cx = (a.x + b.x) / 2 - rect.left;
       const cy = (a.y + b.y) / 2 - rect.top;
@@ -170,12 +218,13 @@ export function usePanZoom(
     pointers.current.delete(event.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
     if (pointers.current.size === 1) {
+      // Continue as a drag from wherever the view is now (it may have hit a bound).
       const [rest] = [...pointers.current.values()];
-      const current = viewRef.current;
+      const current = view.current;
       drag.current = { x: rest.x, y: rest.y, ox: current.x, oy: current.y };
     } else if (pointers.current.size === 0) {
       drag.current = null;
-      setGrabbing(false);
+      grabbing(false);
     }
   };
 
@@ -202,10 +251,8 @@ export function usePanZoom(
   }, []);
 
   return {
-    view,
-    grabbing,
     fit,
-    autoFit,
+    refresh,
     resetFit,
     zoom,
     handlers: {

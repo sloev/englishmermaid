@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   BookOpen,
@@ -29,9 +29,10 @@ import {
   parse,
   STARTER,
   toMermaid,
+  type Token,
   type ViewKind,
 } from "./lib/plainpath";
-import { plainLabels, renderMermaid } from "./lib/mermaid";
+import { plainLabels, renderLatest, renderMermaid } from "./lib/mermaid";
 import {
   download,
   EXTENSION,
@@ -49,6 +50,7 @@ import { usePanZoom } from "./lib/use-pan-zoom";
 const STORAGE_KEY = "plainpath-script";
 const VIEW_KEY = "plainpath-view";
 const SAVED_KEY = "plainpath-saved";
+const RENDER_DELAY = 300;
 
 function stored(key: string): string | null {
   try {
@@ -94,7 +96,8 @@ export function App() {
   const stageRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const pendingCursor = useRef<number | null>(null);
-  const map = usePanZoom(stageRef, hostRef);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const map = usePanZoom(stageRef, layerRef, hostRef);
 
   const journey = useMemo(() => parse(source), [source]);
   const mermaid = useMemo(() => toMermaid(journey, viewKind), [journey, viewKind]);
@@ -153,27 +156,28 @@ export function App() {
       return;
     }
     let cancel = false;
+    // Redraw once typing pauses; Mermaid layout is the expensive part on big charts.
     const timer = window.setTimeout(() => {
-      renderMermaid(mermaid)
+      renderLatest(mermaid)
         .then((drawn) => {
-          if (cancel) return;
+          if (cancel || drawn == null) return;
           setSvg(drawn);
           setMapNote(null);
         })
         .catch(() => {
           if (!cancel) setMapNote("The map could not be drawn from these lines yet.");
         });
-    }, 120);
+    }, RENDER_DELAY);
     return () => {
       cancel = true;
       window.clearTimeout(timer);
     };
   }, [mermaid]);
 
-  const { autoFit } = map;
+  const { refresh } = map;
   useEffect(() => {
-    if (svg) autoFit();
-  }, [svg, autoFit]);
+    if (svg) refresh();
+  }, [svg, refresh]);
 
   // Cmd/Ctrl+E toggles from anywhere; Escape leaves the editor.
   useEffect(() => {
@@ -300,19 +304,10 @@ export function App() {
         tabIndex={-1}
         role="application"
         aria-label={journey.title ? `${journey.title} map` : "Map"}
-        className={`map-stage map-canvas absolute inset-0 outline-none ${map.grabbing ? "cursor-grabbing" : "cursor-grab"}`}
+        className="map-stage map-canvas absolute inset-0 outline-none"
         {...map.handlers}
       >
-        <div
-          className="map-layer"
-          style={{
-            transform: `translate(${map.view.x}px, ${map.view.y}px) scale(${map.view.scale})`,
-          }}
-        >
-          {svg ? (
-            <div ref={hostRef} className="mermaid-host" dangerouslySetInnerHTML={{ __html: svg }} />
-          ) : null}
-        </div>
+        <MapLayer svg={svg} layerRef={layerRef} hostRef={hostRef} />
         {!svg ? (
           <p className="absolute inset-0 grid place-items-center px-6 text-center text-sm text-pretty text-muted">
             Write a Screen: in the editor and the map draws itself here.
@@ -474,19 +469,13 @@ export function App() {
           <div className="editor-stack script-text rounded-card" translate="no">
             <div className="editor-lines" aria-hidden="true">
               {journey.lines.map((line, index) => (
-                <div
+                <EditorRow
                   key={index}
-                  className={badLines.has(index + 1) ? "editor-row is-bad" : "editor-row"}
-                >
-                  <span className="editor-gutter">{index + 1}</span>
-                  <span className="editor-code">
-                    {line.tokens.map((token, tokenIndex) => (
-                      <span key={tokenIndex} className={`tok-${token.kind}`}>
-                        {token.text}
-                      </span>
-                    ))}
-                  </span>
-                </div>
+                  number={index + 1}
+                  tokens={line.tokens}
+                  signature={signature(line.tokens)}
+                  bad={badLines.has(index + 1)}
+                />
               ))}
             </div>
             <label className="sr-only" htmlFor="script">
@@ -576,6 +565,55 @@ export function App() {
     </main>
   );
 }
+
+// The chart only re-renders when its SVG changes; panning moves the layer directly.
+const MapLayer = memo(function MapLayer({
+  svg,
+  layerRef,
+  hostRef,
+}: {
+  svg: string;
+  layerRef: React.RefObject<HTMLDivElement | null>;
+  hostRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div ref={layerRef} className="map-layer">
+      {svg ? (
+        <div ref={hostRef} className="mermaid-host" dangerouslySetInnerHTML={{ __html: svg }} />
+      ) : null}
+    </div>
+  );
+});
+
+const signature = (tokens: Token[]) => tokens.map((t) => `${t.kind}\u0001${t.text}`).join("\u0002");
+
+// One highlighted line. Only rows whose text or colouring changed re-render while typing.
+const EditorRow = memo(
+  function EditorRow({
+    number,
+    tokens,
+    bad,
+  }: {
+    number: number;
+    tokens: Token[];
+    signature: string;
+    bad: boolean;
+  }) {
+    return (
+      <div className={bad ? "editor-row is-bad" : "editor-row"}>
+        <span className="editor-gutter">{number}</span>
+        <span className="editor-code">
+          {tokens.map((token, index) => (
+            <span key={index} className={`tok-${token.kind}`}>
+              {token.text}
+            </span>
+          ))}
+        </span>
+      </div>
+    );
+  },
+  (a, b) => a.number === b.number && a.bad === b.bad && a.signature === b.signature,
+);
 
 function MenuButton({
   icon: Icon,

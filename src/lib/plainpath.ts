@@ -220,9 +220,18 @@ function mediaCaption(text: string, fallback: MediaSize): { caption: string; siz
   return { caption: unquote(sized ? text.slice(0, sized.index) : text), size };
 }
 
+// Compiled once per pattern: these run for every line on every keystroke.
+const regexes = new Map<string, RegExp>();
+function wordRegex(words: string): RegExp {
+  let re = regexes.get(words);
+  if (!re) regexes.set(words, (re = new RegExp(`(?:^|\\s)(${words})(?=\\s|$)`, "gi")));
+  re.lastIndex = 0;
+  return re;
+}
+
 // Index of the last whole-word, case-insensitive `kw` in `hay` (after `from`).
 function lastWord(hay: string, kw: string, from = 0): number {
-  const re = new RegExp(`(?:^|\\s)(${kw.replace(/ /g, "\\s+")})(?=\\s|$)`, "gi");
+  const re = wordRegex(kw.replace(/ /g, "\\s+"));
   let at = -1;
   for (let m = re.exec(hay); m; m = re.exec(hay)) {
     const start = m.index + m[0].length - m[1].length;
@@ -260,7 +269,7 @@ type Split = { head: string; tail?: Tail; segs: Seg[]; error?: string };
 // `If x go to Y` / `For each x show Y`: split off an optional action at the end.
 // The last action word wins, so "If menu is open show Help" shows Help.
 function withTail(body: string, start: number, allowShow = true): Split {
-  const re = new RegExp(`(?:^|\\s)(${GO}${allowShow ? "|show" : ""})(?=\\s|$)`, "gi");
+  const re = wordRegex(`${GO}${allowShow ? "|show" : ""}`);
   const found: { at: number; word: string }[] = [];
   for (let m = re.exec(body); m; m = re.exec(body)) {
     const at = m.index + m[0].length - m[1].length;
