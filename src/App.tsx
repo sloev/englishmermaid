@@ -841,7 +841,7 @@ function onEditorKey(
     const indent = line.match(/^[ \t]*/)![0];
     // One level deeper after a line that opens a block, unless it already ends in an action.
     const opens =
-      /^\s*(?:(?:screen|page|view|component|modal|popup|pop-up|dialog|sheet):|show\b|for each\b|if\b|else\b|otherwise\b|on\b|when\b|after\b|once\b|step\b|button\b|choose\b|select\b|pick\b)/i.test(
+      /^\s*(?:(?:screen|page|view|component|modal|popup|pop-up|dialog|sheet):|show\b|for each\b|if\b|else\b|otherwise\b|on\b|when\b|after\b|once\b|step\b|button\b|choose\b|select\b|pick\b|fields\b|form\b)/i.test(
         line,
       ) || /^\s*(?:text|headline|heading|label|message|says?)\s*:\s*$/i.test(line);
     const inline = /\s(go(es)?\s+to|opens?|show)\s+\S/i.test(line.replace(/^\s*show\s/i, " "));
@@ -925,6 +925,10 @@ const HELP: { code: string; text: string }[] = [
     text: "A picture or video placeholder. Add (square) or (tall) for the shape. 'Show Hero Image' or 'Show Logo' are drawn as pictures too.",
   },
   { code: "Button Datakaffe goes to Roasting", text: "A button and where it leads." },
+  {
+    code: "Fields:|  Weight: in grams|  Color:",
+    text: "A form. One field per indented line: 'Label: description'. The description is optional; continue it on more-indented lines for several lines.",
+  },
   {
     code: "Choose roast flow:",
     text: "A select. Put one option per line below it: 'Datakaffe: weigh first, goes to Roasting'. The description and the 'goes to' are optional.",

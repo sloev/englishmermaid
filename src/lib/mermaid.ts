@@ -155,6 +155,19 @@ export function reversePath(d: string): string | null {
   );
 }
 
+// Buttons get a hard offset shadow (neobrutalist) so they read as pressable.
+const BUTTON_SHADOW =
+  ".node.button > rect, .node.button > path { filter: drop-shadow(4px 4px 0 #f4efe6); }";
+
+function buttonShadows(host: HTMLElement): boolean {
+  const svg = host.querySelector("svg");
+  if (!svg?.querySelector(".node.button")) return false;
+  const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+  style.textContent = BUTTON_SHADOW;
+  svg.prepend(style);
+  return true;
+}
+
 // Layout fixes applied to every rendered diagram (live view and exports).
 function tidy(svg: string): string {
   const host = document.createElement("div");
@@ -163,6 +176,7 @@ function tidy(svg: string): string {
   document.body.append(host);
   try {
     let changed = topAlign(host);
+    changed = buttonShadows(host) || changed;
     // Links written backwards for layout (see Writer.edge) get their arrow turned round.
     for (const path of host.querySelectorAll<SVGPathElement>('path[id*="-back"]')) {
       if (!/-back\d+$/.test(path.id)) continue;

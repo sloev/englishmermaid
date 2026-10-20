@@ -406,3 +406,41 @@ test("storyboard links back up the page are written reversed", () => {
   assert.match(story, new RegExp(`\\n  u\\d+ --> ${b}`), "A's Next button links down to B");
   assert.equal(story.match(/back\d+@/g)?.length, 1, "forward links stay as they are");
 });
+
+test("fields: labels in context, optional and multi-line descriptions", () => {
+  const src = `Screen: New blend
+  fields:
+    Title: title of this
+    Age: blabla
+    Color:
+    Weight
+    Notes:
+      Fruity, a little floral.
+      Show it off as a pour over.
+  Button Save goes to Library
+`;
+  const journey = parse(src);
+  assert.deepEqual(journey.issues, []);
+  assert.equal(journey.title, null, "Title: inside fields is a field, not the diagram title");
+  const [screen] = journey.blocks;
+  const form = screen.children[0] as Extract<Node, { kind: "fields" }>;
+  assert.deepEqual(
+    form.children.map((f) => f.kind === "field" && [f.label, f.text]),
+    [
+      ["Title", "title of this"],
+      ["Age", "blabla"],
+      ["Color", ""],
+      ["Weight", ""],
+      ["Notes", "Fruity, a little floral.\nShow it off as a pour over."],
+    ],
+  );
+  assert.equal(screen.children[1].kind, "button", "dedenting ends the form");
+  const story = toMermaid(journey, "story");
+  assert.match(
+    story,
+    /\["Notes<br>Fruity, a little floral\.<br>Show it off as a pour<br>over\."\]/,
+  );
+  assert.match(story, /\["Color<br>＿/, "an empty field shows a blank line");
+  assert.ok(!toMermaid(journey, "flow").includes("Weight"), "the flow view leaves forms out");
+  assert.match(parse("Screen: A\n  Fields: Login\n").issues[0].message, /Add the fields/);
+});

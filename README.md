@@ -36,6 +36,7 @@ Component: Product Card
 | `Text: …` / `Headline: …`                          | Words on the screen. Empty after the colon: the indented lines below are the text. |
 | `Image: hero photo` / `Video: tour`                | A picture or video placeholder; `(square)` / `(tall)` for the shape.               |
 | `Button Buy goes to Cart`                          | A button and where it leads.                                                       |
+| `Fields:`                                          | A form; one `Label: description` per indented line (description optional).         |
 | `Choose roast flow:`                               | A select; one `Option: description [goes to X]` per indented line.                 |
 | `For each x in y`                                  | A repeated part. Children indented, or `… show Row` inline.                        |
 | `If …` / `Else if …` / `Else`                      | Choices. Children indented, or end with `go to X` / `show X`.                      |

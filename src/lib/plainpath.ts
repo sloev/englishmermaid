@@ -38,6 +38,8 @@ type Stmt =
   | { t: "on"; event: string; tail?: Tail }
   | { t: "button"; label: string; tail?: Tail }
   | { t: "choose"; prompt: string }
+  | { t: "fields"; title: string }
+  | { t: "field"; label: string; text: string }
   | { t: "option"; label: string; text: string; tail?: Tail }
   | { t: "words"; text: string }
   | { t: "step"; title: string }
@@ -68,6 +70,8 @@ export type Node =
   | { kind: "media"; caption: string; video: boolean; size: MediaSize; line: number }
   | { kind: "button"; label: string; line: number; children: Node[] }
   | { kind: "choose"; prompt: string; line: number; children: Node[] }
+  | { kind: "fields"; title: string; line: number; children: Node[] }
+  | { kind: "field"; label: string; text: string; line: number }
   | { kind: "option"; label: string; text: string; line: number; children: Node[] }
   | { kind: "each"; item: string; line: number; children: Node[] }
   | { kind: "on"; event: string; line: number; children: Node[] }
@@ -155,7 +159,9 @@ Screen: Cart
     Else open Sign In
 
 Popup: Sign In
-  Show Email Field, Password Field
+  Fields:
+    Email:
+    Password: at least 8 characters
   Button Sign in goes to Payment
 
 Screen: Payment
@@ -170,7 +176,9 @@ Screen: Landing
   Button Sign up goes to Sign Up
 
 Screen: Sign Up
-  Show Email Field, Password Field
+  Fields:
+    Email:
+    Password: at least 8 characters
   On submit
     If email is taken
       Text: That email already has an account
@@ -349,6 +357,28 @@ export function classifyOption(raw: string): Line {
   return make({ t: "option", label: head, text: "", tail }, asLabel(segs), error);
 }
 
+/**
+ * A line indented under `Fields:`: `Label: description`, or just `Label`. Read in
+ * context, so any words can be a label ("Title:" here is a field, not the title).
+ */
+export function classifyField(raw: string): Line {
+  const { body, make } = lineParts(raw);
+  if (!body.trim()) return make({ t: "blank" }, [[body, "plain"]]);
+  if (/^(?:note:|\/\/)/i.test(body)) return make({ t: "note" }, [[body, "note"]]);
+  const colon = body.indexOf(":");
+  const label = unquote(colon > 0 ? body.slice(0, colon) : body);
+  if (colon <= 0) return make({ t: "field", label, text: "" }, [[body, "show"]]);
+  return make(
+    { t: "field", label, text: body.slice(colon + 1).trim() },
+    [
+      [body.slice(0, colon), "show"],
+      [":", "plain"],
+      [body.slice(colon + 1), "name"],
+    ],
+    label ? undefined : "Name the field before the colon",
+  );
+}
+
 /** A line inside a multi-line `Text:` block: taken word for word. */
 export function classifyWords(raw: string): Line {
   const { body, make } = lineParts(raw);
@@ -409,6 +439,11 @@ export function classifyLine(raw: string): Line {
     const heading = /^head/i.test(m);
     // With nothing after the colon, the indented lines below are the text.
     return make({ t: "text", text, heading }, keyed("text", m));
+  }
+
+  if ((m = word(/^(?:fields|form)(?=[\s:]|$)/i))) {
+    const title = unquote(body.slice(m.length).replace(/^\s*:/, ""));
+    return make({ t: "fields", title }, keyed("show", m));
   }
 
   if ((m = word(/^(?:choose|select|pick)(?=[\s:]|$)/i))) {
@@ -535,7 +570,14 @@ export function classifyLine(raw: string): Line {
 
 type TextNode = Extract<Node, { kind: "text" }>;
 
-type Frame = { indent: number; children: Node[]; choose?: boolean; words?: TextNode };
+// `words` collects the indented lines of a text block or a field's description.
+type Frame = {
+  indent: number;
+  children: Node[];
+  choose?: boolean;
+  fields?: boolean;
+  words?: { text: string };
+};
 
 function tailNodes(tail: Tail | undefined, line: number): Node[] {
   if (!tail) return [];
@@ -586,6 +628,8 @@ export function parse(source: string): Journey {
       const top = stack[stack.length - 1];
       // Lines indented under a Choose are its options, whatever words they start with.
       if (top.choose) line = lines[index] = classifyOption(raw[index]);
+      // Lines indented under Fields: are fields, likewise.
+      if (top.fields) line = lines[index] = classifyField(raw[index]);
       // Lines indented under an empty Text: are its text, word for word.
       if (top.words) {
         line = lines[index] = classifyWords(raw[index]);
@@ -675,6 +719,19 @@ export function parse(source: string): Journey {
           number: 0,
           total: 0,
         });
+      case "fields": {
+        const node: Node = { kind: "fields", title: stmt.title, line: number, children: [] };
+        siblings.push(node);
+        stack.push({ indent: line.indent, children: node.children, fields: true });
+        return;
+      }
+      case "field": {
+        const node: Node = { kind: "field", label: stmt.label, text: stmt.text, line: number };
+        siblings.push(node);
+        // Lines indented under a field continue its description, word for word.
+        stack.push({ indent: line.indent, children: [], words: node });
+        return;
+      }
       case "choose": {
         const node: Node = { kind: "choose", prompt: stmt.prompt, line: number, children: [] };
         siblings.push(node);
@@ -780,6 +837,13 @@ export function parse(source: string): Journey {
             });
           }
         }
+        if (node.kind === "field") node.text = node.text.replace(/\n+$/, "");
+        if (node.kind === "fields" && !node.children.length) {
+          issues.push({
+            line: node.line,
+            message: "Add the fields on the lines below, indented, like 'Age: in years'",
+          });
+        }
         if (node.kind === "choose" && !node.children.length) {
           issues.push({
             line: node.line,
@@ -869,7 +933,10 @@ const CLASS_DEFS = [
   "classDef media fill:#1c1a15,stroke:#5a5244,color:#d9d0c2",
   "classDef text fill:transparent,stroke:transparent,color:#d9d0c2,font-style:italic",
   "classDef headline fill:transparent,stroke:transparent,color:#f4efe6,font-weight:bold,font-size:18px",
-  "classDef button fill:#16292a,stroke:#7fc4c9,color:#f4efe6,stroke-width:1.5px",
+  // Neobrutalist: solid fill and a dark outline; renderMermaid adds the hard offset shadow
+  // (Mermaid's style syntax can't hold the parentheses of drop-shadow()).
+  "classDef button fill:#7fc4c9,stroke:#0e0d0b,color:#0e0d0b,stroke-width:2px",
+  "classDef field fill:#0e0d0b,stroke:#5a5244,color:#d9d0c2,stroke-width:1.5px",
   "classDef option fill:#1c1a15,stroke:#7fc4c9,color:#f4efe6",
   "classDef step fill:#17211c,stroke:#8fbf9f,color:#f4efe6,stroke-width:1.5px",
   "classDef cond fill:#2a2415,stroke:#e7c27a,color:#f4efe6",
@@ -1219,6 +1286,17 @@ function storyMermaid(journey: Journey): string {
           depth,
         );
         w.line(`style ${id} fill:#132021,stroke:${COLORS.button}`, depth);
+        ids.push(id);
+      } else if (node.kind === "fields") {
+        const id = w.id("f");
+        group(owner, id, node.title || "Form", node.children, depth);
+        w.line(`style ${id} fill:#16150f,stroke:${COLORS.muted}`, depth);
+        ids.push(id);
+      } else if (node.kind === "field") {
+        // The label above an input-like box holding the description (or a blank line).
+        const id = w.id("i");
+        const value = node.text ? mermaidLabel(node.text) : "＿＿＿＿＿＿＿＿";
+        w.node(id, `["${mermaidLabel(node.label)}<br>${value}"]`, "field", depth);
         ids.push(id);
       } else if (node.kind === "option") {
         const id = w.id("r");
