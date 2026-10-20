@@ -16,7 +16,10 @@ test("all examples parse cleanly and render both views", () => {
   for (const example of EXAMPLES) {
     const journey = parse(example.source);
     assert.deepEqual(journey.issues, [], example.id);
-    assert.match(toMermaid(journey, "flow"), /^---\ntitle: .+\n---\nflowchart TD/);
+    assert.match(
+      toMermaid(journey, "flow"),
+      /^---\ntitle: .+\nconfig:\n(?:  .*\n)*---\nflowchart TD/,
+    );
     assert.match(toMermaid(journey, "story"), /subgraph/);
   }
 });
@@ -96,12 +99,20 @@ test("flow view labels edges with the event and condition path", () => {
   assert.match(mermaid, /-->\|"tap Buy · signed in"\|/);
 });
 
-test("components link from where they are shown", () => {
-  const src = "Screen: A\n  Show Card\nComponent: Card\n  On tap go to B\n";
-  const journey = parse(src);
-  assert.equal(journey.blocks[1].kind, "component");
-  assert.match(toMermaid(journey, "story"), /-\.->/);
-  assert.match(toMermaid(journey, "flow"), /\[\["Card"\]\]/);
+test("layout-only components are drawn where they are shown", () => {
+  const layout = toMermaid(
+    parse("Screen: A\n  Show Card\nComponent: Card\n  Show Photo, Name\n"),
+    "story",
+  );
+  assert.match(layout, /subgraph \w+\["Card"\]/, "drawn inside the screen that shows it");
+  assert.equal(layout.match(/\["Name"\]/g)?.length, 1, "and not again on its own");
+  assert.ok(!layout.includes("-.->"));
+
+  const linked = parse("Screen: A\n  Show Card\nComponent: Card\n  On tap go to B\n");
+  assert.equal(linked.blocks[1].kind, "component");
+  const story = toMermaid(linked, "story");
+  assert.match(story, /-\.->/, "a component with links stays separate, joined by a dotted arrow");
+  assert.match(toMermaid(linked, "flow"), /\[\["Card"\]\]/);
 });
 
 test("helpful errors", () => {
@@ -384,4 +395,14 @@ test("steps without a way on continue to the next step", () => {
     0,
     "the last step goes nowhere",
   );
+});
+
+test("storyboard links back up the page are written reversed", () => {
+  const src =
+    "Screen: A\n  Button Next goes to B\nScreen: B\n  Button Back goes to A\n  Button On goes to C\n";
+  const story = toMermaid(parse(src), "story");
+  const [a, b] = [...story.matchAll(/(h\d+)\["[AB]"\]/g)].map((m) => m[1]);
+  assert.match(story, new RegExp(`\\n  ${a} back0@--> u\\d+`), "B's Back button links up to A");
+  assert.match(story, new RegExp(`\\n  u\\d+ --> ${b}`), "A's Next button links down to B");
+  assert.equal(story.match(/back\d+@/g)?.length, 1, "forward links stay as they are");
 });

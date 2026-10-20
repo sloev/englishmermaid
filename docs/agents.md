@@ -25,6 +25,11 @@ The person sees the live diagram and can edit the script, save it as a
 the browser; nothing is uploaded. The `#` part of a URL never reaches the
 server.
 
+Exported SVG and PNG files contain the script (an SVG `<metadata
+id="plainpath-source">` element, or a PNG `iTXt` chunk with the keyword
+`plainpath`), so a person can open or drop an exported picture back into the app
+to keep editing. You can read the script out of such a file the same way.
+
 If you can only output text, give the script itself in a code block. It reads
 fine as plain English, and the person can paste it into the app.
 
@@ -38,7 +43,7 @@ One statement per line. Keywords are case-insensitive. Indent with two spaces
 | `Title: Shop`                                          | Diagram title. Optional, once.                                                                                                                                                                                                                                                                                                                            |
 | `Screen: Cart`                                         | A page, a step or a state. Also `Page:` and `View:`. Lines indented under it belong to it.                                                                                                                                                                                                                                                                |
 | `Popup: Coffee Type`                                   | A modal or dialog that opens on top of a screen. Also `Modal:`, `Dialog:` and `Sheet:`. Drawn dashed.                                                                                                                                                                                                                                                     |
-| `Component: Product Card`                              | A reusable part. Any `Show Product Card` links to it.                                                                                                                                                                                                                                                                                                     |
+| `Component: Product Card`                              | A reusable part. In the storyboard it is drawn right inside each screen that has a `Show Product Card`; a component with links of its own is drawn once, separately, with a dotted arrow from where it is shown.                                                                                                                                          |
 | `Show Header`                                          | A part of the layout. `Show A, B and C` adds several. Indent under a Show to nest parts inside it.                                                                                                                                                                                                                                                        |
 | `Text: Free shipping` / `Headline: Pick a blend`       | Words on the screen. `Show "Free shipping"` works too. For several lines, end the line after `Text:` (or `Headline:`) and write the lines indented below it; they are taken word for word, keywords included, and an empty line inside makes a paragraph break.                                                                                           |
 | `Image: hero photo of the beans`                       | A picture placeholder, drawn as a picture frame in the storyboard. Also `Photo:`, `Picture:`, `Illustration:`, `Logo:`, `Avatar:`, `Banner:`, or `Photo of …`. `Video: how to roast` draws a play button. Add `(square)` or `(tall)` at the end for the shape. A `Show` part named like a picture (`Show Hero Image`, `Show Logo`) is drawn the same way. |

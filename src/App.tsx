@@ -39,12 +39,15 @@ import {
   fileName,
   onLaunchFile,
   openText,
+  readScript,
   readShareHash,
   saveText,
   shareUrl,
   svgToPng,
   type FileHandle,
+  type Opened,
 } from "./lib/files";
+import { addPngSource, addSvgSource } from "./lib/embed";
 import { usePanZoom } from "./lib/use-pan-zoom";
 
 const STORAGE_KEY = "plainpath-script";
@@ -262,19 +265,38 @@ export function App() {
 
   async function open() {
     const opened = await openText();
-    if (!opened) return;
-    loadSource(opened.text);
-    setHandle(opened.handle);
-    setSaved(opened.text);
+    if (opened) useOpened(opened);
+  }
+
+  // A script file, or an SVG/PNG export with its script inside.
+  function useOpened({ text, handle, name }: Opened) {
+    if (text == null) return flash(`${name} has no Plainpath script in it`);
+    loadSource(text);
+    setHandle(handle);
+    // A picture is not a script file: Save then asks where to write the script.
+    setSaved(handle ? text : null);
     setMenuOpen(false);
+    flash(`Opened ${name}`);
+  }
+
+  function onDrop(event: React.DragEvent) {
+    const file = event.dataTransfer.files[0];
+    if (!file) return;
+    event.preventDefault();
+    void run(async () => useOpened(await readScript(file)));
   }
 
   async function exportImage(kind: "svg" | "png") {
     if (!mermaid) return;
     // HTML labels can't be rasterised, so exports use plain SVG text labels.
     const drawn = await renderMermaid(plainLabels(mermaid));
-    if (kind === "svg") download(`${base}.svg`, drawn, "image/svg+xml");
-    else download(`${base}.png`, await svgToPng(drawn));
+    // The script travels inside the picture, so it can be opened again for editing.
+    if (kind === "svg") {
+      download(`${base}.svg`, addSvgSource(drawn, source), "image/svg+xml");
+    } else {
+      const png = new Uint8Array(await (await svgToPng(drawn)).arrayBuffer());
+      download(`${base}.png`, new Blob([addPngSource(png, source)], { type: "image/png" }));
+    }
   }
 
   async function copy(text: string, message: string) {
@@ -297,7 +319,11 @@ export function App() {
   const plainChip = `${chip} border-border bg-surface/80 text-fg`;
 
   return (
-    <main className="fixed inset-0 overflow-hidden bg-bg text-fg">
+    <main
+      className="fixed inset-0 overflow-hidden bg-bg text-fg"
+      onDragOver={(event) => event.dataTransfer.types.includes("Files") && event.preventDefault()}
+      onDropCapture={onDrop}
+    >
       {/* Background: the live map. Gets all pointer input while the editor is hidden. */}
       <div
         ref={stageRef}
@@ -835,6 +861,7 @@ function HowTo({
         <span className="font-mono text-fg">Note:</span> are comments.
       </p>
       <p className="mt-3 text-muted">
+        Exported SVG and PNG files keep the script inside: open or drop one here to keep editing.
         Storyboard shows each screen with its layout; Flow shows only how screens connect. Press the
         round button (or Esc) to explore the map: drag to move, scroll or pinch to zoom,
         double-click to fit. Ctrl+E switches back.

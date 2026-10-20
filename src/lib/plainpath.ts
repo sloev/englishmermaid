@@ -878,7 +878,13 @@ const CLASS_DEFS = [
   "classDef loop fill:#17211c,stroke:#8fbf9f,color:#f4efe6",
 ];
 
-type EdgeOpts = { label?: string; color?: string; style?: "-->" | "-.->" | "~~~" };
+type EdgeOpts = {
+  label?: string;
+  color?: string;
+  style?: "-->" | "-.->" | "~~~";
+  /** Points back up the page: written reversed for layout, flipped back after rendering. */
+  back?: boolean;
+};
 
 class Writer {
   out: string[] = [];
@@ -889,6 +895,7 @@ class Writer {
   links: string[] = [];
   private link = 0;
   private seq = 0;
+  private backs = 0;
 
   id(prefix: string) {
     return `${prefix}${this.seq++}`;
@@ -907,14 +914,25 @@ class Writer {
   edge(from: string, to: string, opts: EdgeOpts = {}, depth = 1) {
     const arrow = opts.style ?? "-->";
     const label = opts.label && arrow !== "~~~" ? `|"${mermaidLabel(opts.label)}"|` : "";
-    this.line(`${from} ${arrow}${label} ${to}`, depth);
+    // Mermaid lays out an edge's source above its target. A link back to an
+    // earlier screen is written target-first so it can't drag that screen down;
+    // the "back" edge id tells renderMermaid to turn the arrow around again.
+    if (opts.back) this.line(`${to} back${this.backs++}@${arrow}${label} ${from}`, depth);
+    else this.line(`${from} ${arrow}${label} ${to}`, depth);
     if (opts.color)
       this.links.push(`  linkStyle ${this.link} stroke:${opts.color},stroke-width:1.7px`);
     this.link += 1;
   }
-  finish(title: string | null) {
+  /** `config` lines go under the front matter's `config:` key, e.g. "layout: elk". */
+  finish(title: string | null, config: string[] = []) {
     for (const [from, to, opts] of this.later) this.edge(from, to, opts);
-    const head = title ? ["---", `title: ${cleanLabel(title).replace(/:/g, " ")}`, "---"] : [];
+    const head = [
+      "---",
+      ...(title ? [`title: ${cleanLabel(title).replace(/:/g, " ")}`] : []),
+      "config:",
+      ...config.map((line) => `  ${line}`),
+      "---",
+    ];
     const classLines = [...this.classes].map(([cls, ids]) => `  class ${ids.join(",")} ${cls}`);
     return [
       ...head,
@@ -1061,6 +1079,20 @@ function storyMermaid(journey: Journey): string {
     for (const step of block.steps) stepHeads.set(step, w.id("p"));
   }
 
+  // Reading order of every screen and step, to tell links that go back up.
+  const place = new Map<string, number>();
+  blocks.forEach((block, i) => {
+    place.set(heads.get(block)!, i * 1000);
+    block.steps.forEach((step) => place.set(stepHeads.get(step)!, i * 1000 + step.number));
+  });
+  const here = { block: 0, step: 0 };
+  const link = (from: string, to: string, opts: EdgeOpts) =>
+    w.later.push([
+      from,
+      to,
+      { ...opts, back: (place.get(to) ?? Infinity) <= here.block + here.step },
+    ]);
+
   const targetOf = (owner: Block, node: { to: string; step?: number }) => {
     if (node.step) return stepHeads.get(owner.steps[node.step - 1]);
     const to = findBlock(blocks, node.to);
@@ -1078,7 +1110,7 @@ function storyMermaid(journey: Journey): string {
     for (const child of children) {
       if (child.kind !== "go") continue;
       const to = targetOf(owner, child);
-      if (to) w.later.push([id, to, { color }]);
+      if (to) link(id, to, { color });
     }
     const inner = emit(
       owner,
@@ -1110,6 +1142,11 @@ function storyMermaid(journey: Journey): string {
     chain([...(head ? [head[0]] : []), ...emit(owner, children, depth + 1)], depth + 1);
     w.line("end", depth);
   };
+
+  // Components being drawn inline right now, so one that shows itself stops.
+  const expanding = new Set<Block>();
+  const inlined = (block: Block) =>
+    block.kind === "component" && block.children.length > 0 && !hasMoves(block.children);
 
   // Returns the ids of nodes emitted at this level (first one is the entry).
   const emit = (owner: Block, nodes: Node[], depth: number): string[] => {
@@ -1144,12 +1181,22 @@ function storyMermaid(journey: Journey): string {
       } else if (node.kind === "show") {
         const ref = findBlock(blocks, node.name);
         const id = w.id("s");
-        if (node.children.length) {
+        const inner = ref && inlined(ref) ? [...ref.children, ...node.children] : [];
+        if (ref && inner.length && !expanding.has(ref)) {
+          // A layout-only component is drawn right where it is shown, so the
+          // storyboard shows what the screen contains, with no arrow between boxes.
+          expanding.add(ref);
+          group(ref, id, ref.name, inner, depth);
+          expanding.delete(ref);
+          w.line(`style ${id} fill:#17161d,stroke:${COLORS.component}`, depth);
+        } else if (node.children.length) {
           group(owner, id, node.name, node.children, depth);
           w.tag(id, "show");
         } else {
           w.node(id, `[${q(node.name)}]`, ref?.kind === "component" ? "ref" : "show", depth);
-          if (ref?.kind === "component" && ref !== owner)
+          // Components with links of their own stay a separate box, joined by a dotted arrow:
+          // drawing their links from deep inside a screen confuses Mermaid's layout.
+          if (ref?.kind === "component" && ref !== owner && !inlined(ref))
             w.later.push([id, heads.get(ref)!, { style: "-.->", color: COLORS.component }]);
         }
         ids.push(id);
@@ -1191,7 +1238,10 @@ function storyMermaid(journey: Journey): string {
           `[${q(node.title)}]`,
           "headline",
         ];
+        const outer = here.step;
+        here.step = node.number;
         group(owner, id, `Step ${node.number} of ${node.total}`, node.children, depth, head);
+        here.step = outer;
         const next = flowsOn(owner, node);
         if (next) w.later.push([head[0], stepHeads.get(next)!, { color: COLORS.step }]);
         w.line(`style ${id} fill:#141c17,stroke:${COLORS.step}`, depth);
@@ -1224,13 +1274,13 @@ function storyMermaid(journey: Journey): string {
         const id = w.id("t");
         w.node(id, `([${q(`go to ${node.to}`)}])`, "go", depth);
         const to = targetOf(owner, node);
-        if (to) w.later.push([id, to, { color: COLORS.go }]);
+        if (to) link(id, to, { color: COLORS.go });
         ids.push(id);
       } else {
         const id = w.id("l");
         w.node(id, `([${q(`Loop ${node.action} until ${node.until}`)}])`, "loop", depth);
         const to = targetOf(owner, node);
-        if (to) w.later.push([id, to, { color: COLORS.step }]);
+        if (to) link(id, to, { color: COLORS.step });
         ids.push(id);
       }
     }
@@ -1242,7 +1292,19 @@ function storyMermaid(journey: Journey): string {
     for (let i = 1; i < ids.length; i += 1) w.edge(ids[i - 1], ids[i], { style: "~~~" }, depth);
   };
 
-  for (const block of blocks) {
+  // Components shown on some screen are drawn there; only unused ones stand alone.
+  const shown = new Set<Block>();
+  const findShown = (owner: Block, nodes: Node[]): void =>
+    nodes.forEach((node) => {
+      const ref = node.kind === "show" ? findBlock(blocks, node.name) : undefined;
+      if (ref && ref !== owner && inlined(ref)) shown.add(ref);
+      findShown(owner, childrenOf(node));
+    });
+  blocks.forEach((block) => findShown(block, block.children));
+
+  for (const [index, block] of blocks.entries()) {
+    if (block.kind === "component" && shown.has(block)) continue;
+    Object.assign(here, { block: index * 1000, step: 0 });
     const head = heads.get(block)!;
     const cls = block === startBlock ? "start" : block.kind;
     if (!block.children.length) {

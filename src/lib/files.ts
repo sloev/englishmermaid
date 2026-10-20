@@ -2,6 +2,8 @@
 // where the browser has it (save back to the same file) and falls back to
 // plain downloads / file inputs everywhere else.
 
+import { scriptFromFile } from "./embed";
+
 export const EXTENSION = ".plainpath";
 
 type Handle = {
@@ -19,6 +21,26 @@ type PickerWindow = Window & {
 export type FileHandle = Handle;
 
 const TYPES = [{ description: "Plainpath script", accept: { "text/plain": [EXTENSION, ".txt"] } }];
+// Exported SVGs and PNGs carry their script, so they open for editing too.
+const OPEN_TYPES = [
+  {
+    description: "Plainpath script or exported picture",
+    accept: {
+      "text/plain": [EXTENSION, ".txt", ".md"],
+      "image/svg+xml": [".svg"],
+      "image/png": [".png"],
+    },
+  },
+];
+
+export type Opened = { text: string | null; handle: Handle | null; name: string };
+
+/** The script in a file; pictures never get a handle, so Save can't overwrite them. */
+export async function readScript(file: File, handle: Handle | null = null): Promise<Opened> {
+  const text = scriptFromFile(new Uint8Array(await file.arrayBuffer()));
+  const picture = /\.(?:svg|png)$/i.test(file.name) || /^image\//.test(file.type);
+  return { text, handle: picture ? null : handle, name: file.name };
+}
 
 const picker = () => window as PickerWindow;
 
@@ -66,12 +88,12 @@ export async function saveText(
   }
 }
 
-export async function openText(): Promise<{ text: string; handle: Handle | null } | null> {
+export async function openText(): Promise<Opened | null> {
   const show = picker().showOpenFilePicker;
   if (show) {
     try {
-      const [handle] = await show({ types: TYPES, multiple: false });
-      return { text: await (await handle.getFile()).text(), handle };
+      const [handle] = await show({ types: OPEN_TYPES, multiple: false });
+      return readScript(await handle.getFile(), handle);
     } catch (error) {
       if (isAbort(error)) return null;
       throw error;
@@ -80,11 +102,11 @@ export async function openText(): Promise<{ text: string; handle: Handle | null 
   return new Promise((resolve) => {
     const input = Object.assign(document.createElement("input"), {
       type: "file",
-      accept: `${EXTENSION},.txt,.md,text/plain`,
+      accept: `${EXTENSION},.txt,.md,text/plain,.svg,image/svg+xml,.png,image/png`,
     });
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
-      resolve(file ? { text: await file.text(), handle: null } : null);
+      resolve(file ? await readScript(file) : null);
     });
     input.addEventListener("cancel", () => resolve(null));
     input.click();

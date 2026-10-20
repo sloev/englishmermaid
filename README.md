@@ -5,7 +5,8 @@ Describe screens, layout and interactions in plain English and get a live
 
 **App:** https://sloev.github.io/englishmermaid/. It installs as an app and works
 offline. Save and open `.plainpath` files, export SVG, PNG or Mermaid, or copy a
-share link.
+share link. Exported SVG and PNG files carry the script inside them, so you can
+open (or drop) one later and carry on editing.
 
 **AI agents:** see [`public/agents.md`](public/agents.md) (served at
 `/agents.md`). In short, link people to `…/englishmermaid/#text=<url-encoded script>`.

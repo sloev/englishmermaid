@@ -58,12 +58,130 @@ const fonts = () =>
     ),
   );
 
+/**
+ * Mermaid lays out a screen with no arrows in or out as one self-contained
+ * block, and centres such blocks vertically against the tallest one. Move them
+ * up so all screens start at the same height, like pages laid side by side.
+ * They have no arrows attached, so nothing else needs to move with them.
+ */
+function topAlign(host: HTMLElement): boolean {
+  const nodes = host.querySelector("svg")?.querySelector(":scope > g > .root > .nodes");
+  if (!nodes) return false;
+  const blocks = [...nodes.children]
+    .filter((el): el is SVGGElement => el.classList.contains("root"))
+    .flatMap((el) => {
+      const at = /translate\(\s*([-\d.e]+)[\s,]+([-\d.e]+)\s*\)/.exec(
+        el.getAttribute("transform") ?? "",
+      );
+      if (!at) return [];
+      const box = el.getBBox();
+      const x = Number(at[1]);
+      const y = Number(at[2]);
+      // Offsets from the block's own origin to its visible box.
+      return [{ el, x, y, dx: box.x, dy: box.y, width: box.width, height: box.height }];
+    });
+  if (blocks.length < 2) return false;
+
+  const tallest = blocks.reduce((a, b) => (b.height > a.height ? b : a));
+  const top = tallest.y + tallest.dy;
+  let moved = false;
+  for (const block of blocks) {
+    // Only blocks sharing the tallest one's row; anything below sits in a later row.
+    const blockTop = block.y + block.dy;
+    if (blockTop <= top + 0.5 || blockTop + block.height > top + tallest.height + 0.5) continue;
+    block.y -= blockTop - top;
+    moved = true;
+  }
+
+  // With no links between screens at all, Mermaid lines them up right to left.
+  // Put them back in script order: screen boxes have ids b<n>, numbered in order.
+  if (blocks.length === nodes.children.length) {
+    const order = (el: Element) =>
+      Number(
+        [...el.querySelectorAll(".cluster")].map((c) => /-b(\d+)$/.exec(c.id)?.[1]).find(Boolean) ??
+          0,
+      );
+    const byX = [...blocks].sort((a, b) => a.x + a.dx - (b.x + b.dx));
+    const gap = Math.max(0, byX[1].x + byX[1].dx - (byX[0].x + byX[0].dx + byX[0].width));
+    let left = byX[0].x + byX[0].dx;
+    for (const block of [...blocks].sort((a, b) => order(a.el) - order(b.el))) {
+      if (Math.abs(block.x + block.dx - left) > 0.5) moved = true;
+      block.x = left - block.dx;
+      left += block.width + gap;
+    }
+  }
+
+  if (moved) {
+    for (const block of blocks)
+      block.el.setAttribute("transform", `translate(${block.x}, ${block.y})`);
+  }
+  return moved;
+}
+
+/**
+ * Turn a path around: "M a C b c d L e" becomes "M e L d C c b a". Only the
+ * absolute M/L/C commands Mermaid draws edges with; anything else is left alone.
+ */
+export function reversePath(d: string): string | null {
+  if (!/^\s*M/.test(d) || /[^MLC\d\s,.eE+-]/.test(d)) return null;
+  type Seg = { from: number[]; to: number[]; c?: [number[], number[]] };
+  const segs: Seg[] = [];
+  let at: number[] | null = null;
+  for (const [, cmd, args] of d.matchAll(/([MLC])([^MLC]*)/g)) {
+    const n = args
+      .trim()
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map(Number);
+    const step = cmd === "C" ? 6 : 2;
+    if (n.length % step || n.some(Number.isNaN)) return null;
+    for (let i = 0; i < n.length; i += step) {
+      const p = n.slice(i, i + step);
+      if (cmd === "M" && i === 0) at = p;
+      else if (cmd === "C")
+        segs.push({ from: at!, to: p.slice(4), c: [p.slice(0, 2), p.slice(2, 4)] });
+      else segs.push({ from: at!, to: p });
+      at = cmd === "C" ? p.slice(4) : p;
+    }
+  }
+  if (!at || !segs.length) return null;
+  const pt = (p: number[]) => `${p[0]},${p[1]}`;
+  return (
+    `M${pt(at)}` +
+    segs
+      .reverse()
+      .map((s) => (s.c ? `C${pt(s.c[1])},${pt(s.c[0])},${pt(s.from)}` : `L${pt(s.from)}`))
+      .join("")
+  );
+}
+
+// Layout fixes applied to every rendered diagram (live view and exports).
+function tidy(svg: string): string {
+  const host = document.createElement("div");
+  host.style.cssText = "position:absolute;left:-100000px;top:0;visibility:hidden";
+  host.innerHTML = svg;
+  document.body.append(host);
+  try {
+    let changed = topAlign(host);
+    // Links written backwards for layout (see Writer.edge) get their arrow turned round.
+    for (const path of host.querySelectorAll<SVGPathElement>('path[id*="-back"]')) {
+      if (!/-back\d+$/.test(path.id)) continue;
+      const reversed = reversePath(path.getAttribute("d") ?? "");
+      if (reversed) path.setAttribute("d", reversed);
+      changed = true;
+    }
+    return changed ? host.innerHTML : svg;
+  } finally {
+    host.remove();
+  }
+}
+
 export async function renderMermaid(code: string): Promise<string> {
   const [mermaid] = await Promise.all([load(), fonts()]);
   const id = `plainpath${++seq}`;
   try {
     const { svg } = await mermaid.render(id, code);
-    return svg;
+    return tidy(svg);
   } finally {
     document.getElementById(id)?.remove();
   }
@@ -71,10 +189,11 @@ export async function renderMermaid(code: string): Promise<string> {
 
 /** Same diagram with SVG text labels instead of HTML ones, so it can be saved or rasterised. */
 export function plainLabels(code: string): string {
-  const config = "config:\n  htmlLabels: false\n  flowchart:\n    htmlLabels: false";
-  return code.startsWith("---\n")
-    ? `---\n${config}\n${code.slice(4)}`
-    : `---\n${config}\n---\n${code}`;
+  const config = "config:\n  htmlLabels: false\n  flowchart:\n    htmlLabels: false\n";
+  // Diagrams from toMermaid always carry a config block in their front matter.
+  return code.includes("\nconfig:\n")
+    ? code.replace("\nconfig:\n", `\n${config}`)
+    : `---\n${config}---\n${code}`;
 }
 
 // At most one render runs at a time. While it runs, only the newest request
